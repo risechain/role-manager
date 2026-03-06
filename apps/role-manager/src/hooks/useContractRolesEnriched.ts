@@ -28,8 +28,12 @@ export interface UseContractRolesEnrichedReturn {
   roles: EnrichedRoleAssignment[];
   /** Whether initial fetch is in progress */
   isLoading: boolean;
+  /** Whether no cached data exists yet (true even when query is disabled or just enabled) */
+  isPending: boolean;
   /** Whether background refresh is in progress */
   isFetching: boolean;
+  /** Whether query resolved empty and is still polling for real data (indexer initializing) */
+  isSettling: boolean;
   /** Error if fetch failed */
   error: DataError | null;
   /** User-friendly error message */
@@ -83,6 +87,7 @@ export function useContractRolesEnriched(
   const {
     data: roles,
     isLoading,
+    isPending,
     isFetching,
     error: rawError,
     refetch: queryRefetch,
@@ -140,6 +145,18 @@ export function useContractRolesEnriched(
     staleTime: 1 * 60 * 1000, // 1 minute
     gcTime: 10 * 60 * 1000, // 10 minutes
     retry: false,
+    // Poll every 2s while the service returns empty data (max 5 cycles).
+    // The indexer/service may not have role IDs available on the first call
+    // (e.g. role discovery via indexer is still initializing). Polling ensures
+    // the UI auto-recovers without requiring a manual refresh.
+    refetchInterval: (query) => {
+      if (query.state.status === 'error') return false;
+      const data = query.state.data;
+      if ((!data || data.length === 0) && query.state.dataUpdateCount < 5) {
+        return 2_000;
+      }
+      return false;
+    },
   });
 
   const error = useMemo(() => {
@@ -148,6 +165,20 @@ export function useContractRolesEnriched(
   }, [rawError]);
 
   const isEmpty = useMemo(() => !roles || roles.length === 0, [roles]);
+
+  // Derive settling state from the query cache's dataUpdateCount — the same counter
+  // that refetchInterval uses to stop polling. This keeps both in sync and avoids
+  // stale isSettling after remounts when the cached empty array persists.
+  const MAX_SETTLE_CYCLES = 5;
+  const dataUpdateCount =
+    queryClient.getQueryState(queryKeys.contractRolesEnriched(contractAddress))?.dataUpdateCount ??
+    0;
+
+  const isSettling =
+    !isPending &&
+    (roles === undefined || roles.length === 0) &&
+    !rawError &&
+    dataUpdateCount < MAX_SETTLE_CYCLES;
 
   const refetch = async (): Promise<void> => {
     await queryRefetch();
@@ -160,7 +191,9 @@ export function useContractRolesEnriched(
   return {
     roles: roles ?? [],
     isLoading,
+    isPending,
     isFetching,
+    isSettling,
     error,
     errorMessage,
     canRetry,
