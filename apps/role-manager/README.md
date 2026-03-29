@@ -87,7 +87,7 @@ When developing against local changes to `@openzeppelin/ui-*` packages:
 # From the monorepo root, enable local packages
 pnpm dev:local
 
-# This uses packages from ../openzeppelin-ui and ../ui-builder
+# This uses packages from ../openzeppelin-ui and ../openzeppelin-adapters
 # Make sure those repos are built first:
 # cd ../openzeppelin-ui && pnpm install && pnpm build
 
@@ -97,18 +97,18 @@ pnpm dev:npm
 
 ### How It Works
 
-The local development workflow uses pnpm's [`readPackage` hook](https://pnpm.io/pnpmfile#hooksreadpackagepkg-context) via `.pnpmfile.cjs` to dynamically resolve packages at install time:
+The local development workflow uses the published `oz-dev` CLI plus the monorepo root [`readPackage` hook](https://pnpm.io/pnpmfile#hooksreadpackagepkg-context):
 
-1. When `LOCAL_UI=true` is set (via `pnpm dev:local`), the hook intercepts package resolution
-2. Any `@openzeppelin/ui-*` dependency is rewritten to `file:../openzeppelin-ui/packages/*`
-3. Any `@openzeppelin/ui-builder-adapter-*` dependency is rewritten to `file:../ui-builder/packages/*`
+1. `pnpm dev:local` calls `oz-dev use local` through the published CLI package
+2. The CLI builds and packs the selected families into `.packed-packages/local-dev`
+3. `.pnpmfile.cjs` rewrites `@openzeppelin/ui-*` and `@openzeppelin/adapter-*` dependencies to those packed tarballs during install
 
 **Benefits:**
 
 - `package.json` stays unchanged (no `file:` references committed)
-- Switching between local and npm is instant — just re-run install
-- Transitive dependencies are also resolved locally
-- Environment variables (`LOCAL_UI_PATH`, `LOCAL_UI_BUILDER_PATH`) allow custom paths
+- Switching between local and npm is a single command
+- The packed-tarball flow mirrors published package behavior more closely than raw repo links
+- Environment variables (`LOCAL_UI_PATH`, `LOCAL_ADAPTERS_PATH`) allow custom paths
 
 See `.pnpmfile.cjs` at the monorepo root for the full implementation.
 
@@ -123,8 +123,8 @@ See `.pnpmfile.cjs` at the monorepo root for the full implementation.
 - `@openzeppelin/ui-renderer` - Transaction form rendering
 - `@openzeppelin/ui-react` - React context providers and hooks
 - `@openzeppelin/ui-storage` - IndexedDB storage utilities
-- `@openzeppelin/ui-builder-adapter-evm` - EVM blockchain adapter
-- `@openzeppelin/ui-builder-adapter-stellar` - Stellar blockchain adapter
+- `@openzeppelin/adapter-evm` - EVM blockchain adapter
+- `@openzeppelin/adapter-stellar` - Stellar blockchain adapter
 - `react` - React framework
 - `react-dom` - React DOM bindings
 - `react-router-dom` - Routing
