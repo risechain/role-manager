@@ -8,9 +8,10 @@
 
 import { useCallback, useRef, useState } from 'react';
 
-import type { ContractAdapter, ContractSchema } from '@openzeppelin/ui-types';
+import type { ContractSchema } from '@openzeppelin/ui-types';
 import { logger } from '@openzeppelin/ui-utils';
 
+import type { RoleManagerRuntime } from '@/core/runtimeAdapter';
 import { recentContractsStorage } from '@/core/storage/RecentContractsStorage';
 import type {
   SchemaComparisonResult,
@@ -30,10 +31,10 @@ import { useContractSchemaLoader } from './useContractSchemaLoader';
  * - Handles storage quota errors gracefully (shows schema even if save fails)
  * - Delegates network loading to useContractSchemaLoader (with circuit breaker)
  *
- * @param adapter - The contract adapter to use for loading (or null)
+ * @param runtime - The ecosystem runtime to use for loading (or null)
  * @returns Hook state and functions
  */
-export function useContractSchema(adapter: ContractAdapter | null): UseContractSchemaReturn {
+export function useContractSchema(runtime: RoleManagerRuntime | null): UseContractSchemaReturn {
   const [state, setState] = useState<SchemaLoadingState>('idle');
   const [schema, setSchema] = useState<ContractSchema | null>(null);
   const [record, setRecord] = useState<RecentContractRecord | null>(null);
@@ -44,7 +45,7 @@ export function useContractSchema(adapter: ContractAdapter | null): UseContractS
   const currentNetworkRef = useRef<string | null>(null);
 
   // Use the schema loader hook for network requests with circuit breaker
-  const schemaLoader = useContractSchemaLoader(adapter);
+  const schemaLoader = useContractSchemaLoader(runtime);
 
   /**
    * Check if the current record has a schema
@@ -57,7 +58,7 @@ export function useContractSchema(adapter: ContractAdapter | null): UseContractS
    */
   const load = useCallback(
     async (address: string, networkId: string): Promise<void> => {
-      if (!adapter) {
+      if (!runtime) {
         return;
       }
 
@@ -173,7 +174,7 @@ export function useContractSchema(adapter: ContractAdapter | null): UseContractS
         );
       }
     },
-    [adapter, schemaLoader]
+    [runtime, schemaLoader]
   );
 
   /**

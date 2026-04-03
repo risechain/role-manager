@@ -63,10 +63,11 @@ const NOT_INITIALIZED = Symbol('NOT_INITIALIZED');
  */
 export function WalletSyncProvider({ children }: WalletSyncProviderProps): React.ReactElement {
   const { selectedNetwork } = useContractContext();
-  const { setActiveNetworkId, activeAdapter, isAdapterLoading } = useWalletState();
+  const { setActiveNetworkId, activeRuntime, isRuntimeLoading } = useWalletState();
 
-  // Track the last network ID we synced to avoid unnecessary re-syncs on remount
+  // Track the last synced network to avoid unnecessary re-syncs on remount
   const lastSyncedNetworkIdRef = useRef<string | null | typeof NOT_INITIALIZED>(NOT_INITIALIZED);
+  const lastSyncedEcosystemRef = useRef<string | null>(null);
 
   // Track pending network switch (follows UI Builder pattern)
   const [networkToSwitchTo, setNetworkToSwitchTo] = useState<string | null>(null);
@@ -86,7 +87,7 @@ export function WalletSyncProvider({ children }: WalletSyncProviderProps): React
 
   useWalletReconnectionHandler(
     selectedNetwork?.id ?? null,
-    activeAdapter,
+    activeRuntime,
     networkToSwitchTo,
     handleRequeueSwitch
   );
@@ -94,38 +95,42 @@ export function WalletSyncProvider({ children }: WalletSyncProviderProps): React
   // Sync network selection to wallet state
   useEffect(() => {
     const newNetworkId = selectedNetwork?.id ?? null;
+    const isInitialSync = lastSyncedNetworkIdRef.current === NOT_INITIALIZED;
 
     // Only sync if:
     // 1. This is the first sync (ref is NOT_INITIALIZED), OR
     // 2. The network ID has actually changed from what we last synced
-    if (
-      lastSyncedNetworkIdRef.current === NOT_INITIALIZED ||
-      newNetworkId !== lastSyncedNetworkIdRef.current
-    ) {
+    if (isInitialSync || newNetworkId !== lastSyncedNetworkIdRef.current) {
       logger.info(
         'WalletSyncProvider',
         `Network changed: ${lastSyncedNetworkIdRef.current?.toString()} → ${newNetworkId}`
       );
 
-      // Reset adapter ready state when network changes
       setIsAdapterReady(false);
 
-      // Queue the network switch, or clear pending switch if network deselected
-      if (newNetworkId) {
+      const prevEcosystem = lastSyncedEcosystemRef.current;
+      const newEcosystem = selectedNetwork?.ecosystem ?? null;
+
+      lastSyncedNetworkIdRef.current = newNetworkId;
+      lastSyncedEcosystemRef.current = newEcosystem;
+      setActiveNetworkId(newNetworkId);
+
+      // Only queue a wallet chain switch for same-ecosystem changes (e.g. EVM→EVM).
+      // Cross-ecosystem switches load an entirely new runtime; no chain switch needed.
+      // Initial selection (no prior chain) also doesn't need a switch.
+      const isSameEcosystem =
+        !isInitialSync && prevEcosystem != null && prevEcosystem === newEcosystem;
+      if (isSameEcosystem && newNetworkId) {
         setNetworkToSwitchTo(newNetworkId);
       } else {
         setNetworkToSwitchTo(null);
       }
-
-      lastSyncedNetworkIdRef.current = newNetworkId;
-      setActiveNetworkId(newNetworkId);
     }
-  }, [selectedNetwork?.id, setActiveNetworkId]);
+  }, [selectedNetwork?.id, selectedNetwork?.ecosystem, setActiveNetworkId]);
 
-  // Watch for adapter ready state (follows UI Builder pattern)
+  // Watch for runtime ready state (follows UI Builder pattern)
   useEffect(() => {
-    if (!activeAdapter || !networkToSwitchTo || !selectedNetwork?.id) {
-      // Clear adapter ready if no pending switch
+    if (!activeRuntime || !networkToSwitchTo || !selectedNetwork?.id) {
       if (!networkToSwitchTo && isAdapterReady) {
         logger.info('WalletSyncProvider', 'Target network cleared, resetting adapter ready state.');
         setIsAdapterReady(false);
@@ -133,25 +138,22 @@ export function WalletSyncProvider({ children }: WalletSyncProviderProps): React
       return;
     }
 
-    // Adapter is ready when it matches the target network
-    // Note: activeAdapter is guaranteed truthy here due to early return above
-    if (selectedNetwork.id === networkToSwitchTo && !isAdapterLoading) {
+    if (selectedNetwork.id === networkToSwitchTo && !isRuntimeLoading) {
       logger.info(
         'WalletSyncProvider',
-        `✅ Adapter ready for target network ${selectedNetwork.id}. Setting isAdapterReady.`
+        `✅ Runtime ready for target network ${selectedNetwork.id}. Setting isAdapterReady.`
       );
       if (!isAdapterReady) {
         setIsAdapterReady(true);
       }
     } else if (isAdapterReady && selectedNetwork.id !== networkToSwitchTo) {
-      // Mismatch - reset
       logger.info(
         'WalletSyncProvider',
         `Mismatch: selectedNetwork (${selectedNetwork.id}) vs target (${networkToSwitchTo}). Resetting isAdapterReady.`
       );
       setIsAdapterReady(false);
     }
-  }, [activeAdapter, networkToSwitchTo, selectedNetwork?.id, isAdapterLoading, isAdapterReady]);
+  }, [activeRuntime, networkToSwitchTo, selectedNetwork?.id, isRuntimeLoading, isAdapterReady]);
 
   // Callback when network switch completes
   const handleNetworkSwitchComplete = useCallback(() => {
@@ -163,26 +165,27 @@ export function WalletSyncProvider({ children }: WalletSyncProviderProps): React
   // Determine if NetworkSwitchManager should be mounted
   const shouldMountNetworkSwitcher = useMemo(() => {
     const decision = !!(
-      activeAdapter &&
+      activeRuntime?.wallet &&
+      activeRuntime?.networkCatalog &&
       networkToSwitchTo &&
       isAdapterReady &&
-      activeAdapter.networkConfig.id === networkToSwitchTo
+      activeRuntime.networkConfig.id === networkToSwitchTo
     );
     if (decision) {
       logger.info(
         'WalletSyncProvider',
-        `MOUNTING NetworkSwitchManager. Adapter ID: ${activeAdapter?.networkConfig.id}, Target: ${networkToSwitchTo}`
+        `MOUNTING NetworkSwitchManager. Runtime ID: ${activeRuntime?.networkConfig.id}, Target: ${networkToSwitchTo}`
       );
     }
     return decision;
-  }, [activeAdapter, networkToSwitchTo, isAdapterReady]);
+  }, [activeRuntime, networkToSwitchTo, isAdapterReady]);
 
   return (
     <>
-      {/* NetworkSwitchManager handles actual wallet chain switching for EVM */}
-      {shouldMountNetworkSwitcher && activeAdapter && networkToSwitchTo && (
+      {shouldMountNetworkSwitcher && activeRuntime?.wallet && networkToSwitchTo && (
         <NetworkSwitchManager
-          adapter={activeAdapter}
+          wallet={activeRuntime.wallet}
+          networkCatalog={activeRuntime.networkCatalog}
           targetNetworkId={networkToSwitchTo}
           onNetworkSwitchComplete={handleNetworkSwitchComplete}
         />

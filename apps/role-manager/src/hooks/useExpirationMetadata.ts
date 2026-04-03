@@ -2,18 +2,19 @@
  * useExpirationMetadata hook
  * Feature: 017-evm-access-control (Phase 6 — US5)
  *
- * Queries the adapter's getExpirationMetadata() to determine how the UI
- * should handle expiration for ownership and admin transfers.
+ * Queries the runtime's accessControl capability for expiration metadata
+ * to determine how the UI should handle expiration for ownership and
+ * admin transfers.
  *
  * Returns:
- * - ExpirationMetadata from the adapter (mode, label, unit, currentValue)
+ * - ExpirationMetadata (mode, label, unit, currentValue)
  * - Derived booleans for UI rendering decisions
- *
- * All adapters (Stellar, EVM) must implement getExpirationMetadata.
  */
 import { useQuery } from '@tanstack/react-query';
 
-import type { ContractAdapter, ExpirationMetadata } from '@openzeppelin/ui-types';
+import type { ExpirationMetadata } from '@openzeppelin/ui-types';
+
+import type { RoleManagerRuntime } from '@/core/runtimeAdapter';
 
 import { queryKeys } from './queryKeys';
 import { useAccessControlService } from './useAccessControlService';
@@ -66,18 +67,18 @@ export const expirationMetadataQueryKey = queryKeys.expirationMetadata;
  * ```
  */
 export function useExpirationMetadata(
-  adapter: ContractAdapter | null,
+  runtime: RoleManagerRuntime | null,
   contractAddress: string,
   transferType: TransferType,
   options?: UseExpirationMetadataOptions
 ): UseExpirationMetadataReturn {
-  const { service } = useAccessControlService(adapter);
+  const { service } = useAccessControlService(runtime);
   const { enabled = true } = options ?? {};
 
-  const networkId = adapter?.networkConfig?.id;
+  const networkId = runtime?.networkConfig?.id;
 
-  // Guard: all adapters must implement getExpirationMetadata, but the interface
-  // marks it optional. If somehow missing, the query stays disabled.
+  // Guard: all runtimes expose getExpirationMetadata via the accessControl
+  // capability, but the interface marks it optional. If missing, the query stays disabled.
   const hasMethod = !!service?.getExpirationMetadata;
 
   const query = useQuery({
