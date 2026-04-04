@@ -7,8 +7,11 @@
  */
 
 import { createPublicClient } from 'viem';
+import { useConfig as useWagmiConfig } from 'wagmi';
+import { getConnectorClient } from 'wagmi/actions';
 import { useEffect, useRef, useState } from 'react';
 
+import type { TransactionStatusUpdate } from '@openzeppelin/ui-types';
 import { appConfigService, userNetworkServiceConfigService } from '@openzeppelin/ui-utils';
 
 import { EvmAccessManagerService } from '../core/ecosystems/evm/EvmAccessManagerService';
@@ -48,6 +51,7 @@ export function useAccessManagerService(
 ): UseAccessManagerServiceReturn {
   const [service, setService] = useState<AccessManagerService | null>(null);
   const runtimeRef = useRef<RoleManagerRuntime | null>(null);
+  const wagmiConfig = useWagmiConfig();
 
   useEffect(() => {
     if (!runtime || runtime.networkConfig?.ecosystem !== 'evm') {
@@ -82,11 +86,35 @@ export function useAccessManagerService(
 
       const svc = new EvmAccessManagerService(client, null, networkConfig.chainId, etherscanApiKey);
 
+      if (runtime.execution) {
+        svc.setTransactionExecutor(async (transactionData, executionConfig, onStatusChange) => {
+          const { txHash } = await runtime.execution.signAndBroadcast(
+            transactionData,
+            executionConfig,
+            onStatusChange as (status: string, details: TransactionStatusUpdate) => void
+          );
+
+          return { id: txHash };
+        });
+      }
+
+      // Inject wagmi wallet client provider so transactions go through the
+      // active connector (Safe, MetaMask, WalletConnect, etc.) instead of
+      // falling back to raw window.ethereum.
+      svc.setWalletClientProvider(async () => {
+        try {
+          const connectorClient = await getConnectorClient(wagmiConfig);
+          return connectorClient as unknown as import('viem').WalletClient;
+        } catch {
+          return null; // falls back to window.ethereum in getWalletClientLazy
+        }
+      });
+
       setService(svc);
     } catch {
       setService(null);
     }
-  }, [runtime]);
+  }, [runtime, wagmiConfig]);
 
   return {
     service,

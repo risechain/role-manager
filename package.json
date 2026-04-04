@@ -3,12 +3,11 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "workspaces": {
-    "packages": [
-      "apps/*",
-      "packages/*"
-    ]
-  },
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "!**/node_modules/**"
+  ],
   "scripts": {
     "clean": "pnpm -r clean",
     "install-deps": "pnpm install --frozen-lockfile --ignore-scripts --prefer-offline",
