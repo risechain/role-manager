@@ -22,16 +22,15 @@ import App from './App';
  * - VITE_APP_CFG_RPC_ENDPOINT_STELLAR_TESTNET=https://...
  */
 /**
- * If VITE_RPC_PROXY_URL is set, auto-populate rpcEndpoints for all known
- * EVM networks using the proxy pattern: <proxyUrl>/<chainId>
- * This routes all RPC traffic through a first-party domain, avoiding
- * ad-blocker and CORS issues with public RPC endpoints.
+ * On deployed environments (non-localhost), auto-populate rpcEndpoints
+ * to use same-origin Vercel rewrites (/api/rpc/<chainId>).
+ * This avoids ad-blocker and CORS issues with third-party RPC domains.
+ * Locally, direct RPC URLs work fine (no ad-blocker restrictions).
  */
 function injectRpcProxy(): void {
-  const proxyUrl = import.meta.env.VITE_RPC_PROXY_URL as string | undefined;
-  if (!proxyUrl) return;
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (isLocal) return;
 
-  const base = proxyUrl.replace(/\/$/, '');
   const chains: Record<string, number> = {
     'ethereum-mainnet': 1,
     'arbitrum-mainnet': 42161,
@@ -40,13 +39,11 @@ function injectRpcProxy(): void {
     'base-mainnet': 8453,
   };
 
+  const config = (appConfigService as unknown as { config: { rpcEndpoints: Record<string, string> } }).config;
   for (const [networkId, chainId] of Object.entries(chains)) {
-    // Only set if not already configured by user or app.config.json
     const existing = appConfigService.getRpcEndpointOverride(networkId);
     if (!existing) {
-      // Use internal setter — rpcEndpoints is a plain object
-      const config = (appConfigService as unknown as { config: { rpcEndpoints: Record<string, string> } }).config;
-      config.rpcEndpoints[networkId] = `${base}/${chainId}`;
+      config.rpcEndpoints[networkId] = `/api/rpc/${chainId}`;
     }
   }
 }
