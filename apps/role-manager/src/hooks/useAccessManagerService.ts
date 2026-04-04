@@ -14,6 +14,7 @@ import { appConfigService, userNetworkServiceConfigService } from '@openzeppelin
 
 import { EvmAccessManagerService } from '../core/ecosystems/evm/EvmAccessManagerService';
 import { resilientTransport } from '../core/ecosystems/evm/resilientTransport';
+import { executeTransactionWithSafeApp } from '../core/ecosystems/evm/safeAppExecution';
 import type { RoleManagerRuntime } from '../core/runtimeAdapter';
 import type { AccessManagerService } from '../types/access-manager';
 import { getEvmNetworkConfig } from '../utils/evm-network-config';
@@ -85,6 +86,23 @@ export function useAccessManagerService(
 
       if (runtime.execution) {
         svc.setTransactionExecutor(async (transactionData, executionConfig, onStatusChange) => {
+          const safeResult = await executeTransactionWithSafeApp(
+            transactionData as {
+              address: `0x${string}`;
+              abi: import('viem').Abi;
+              functionName: string;
+              args?: readonly unknown[];
+              value?: bigint;
+            },
+            executionConfig,
+            onStatusChange as (status: string, details: TransactionStatusUpdate) => void,
+            networkConfig.chainId
+          );
+
+          if (safeResult) {
+            return safeResult;
+          }
+
           const { txHash } = await runtime.execution.signAndBroadcast(
             transactionData,
             executionConfig,
