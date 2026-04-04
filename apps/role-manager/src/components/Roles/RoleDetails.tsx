@@ -261,20 +261,29 @@ function AMMetadataPanel({
                 </option>
               ))}
             </select>
-            <button onClick={saveEdit} disabled={isSaving} className="text-green-600 hover:text-green-700">
+            <button
+              onClick={saveEdit}
+              disabled={isSaving}
+              className="text-green-600 hover:text-green-700"
+            >
               <Check className="h-3.5 w-3.5" />
             </button>
-            <button onClick={cancelEdit} disabled={isSaving} className="text-muted-foreground hover:text-foreground">
+            <button
+              onClick={cancelEdit}
+              disabled={isSaving}
+              className="text-muted-foreground hover:text-foreground"
+            >
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
         ) : (
           <div className="flex items-center gap-1.5">
-            <span className="font-medium">
-              {formatRoleLabel(role.adminRoleId!, amRoles)}
-            </span>
+            <span className="font-medium">{formatRoleLabel(role.adminRoleId!, amRoles)}</span>
             {onSetRoleAdmin && (
-              <button onClick={() => startEdit('admin')} className="text-muted-foreground hover:text-foreground">
+              <button
+                onClick={() => startEdit('admin')}
+                className="text-muted-foreground hover:text-foreground"
+              >
                 <Pencil className="h-3 w-3" />
               </button>
             )}
@@ -303,10 +312,18 @@ function AMMetadataPanel({
                     </option>
                   ))}
               </select>
-              <button onClick={saveEdit} disabled={isSaving} className="text-green-600 hover:text-green-700">
+              <button
+                onClick={saveEdit}
+                disabled={isSaving}
+                className="text-green-600 hover:text-green-700"
+              >
                 <Check className="h-3.5 w-3.5" />
               </button>
-              <button onClick={cancelEdit} disabled={isSaving} className="text-muted-foreground hover:text-foreground">
+              <button
+                onClick={cancelEdit}
+                disabled={isSaving}
+                className="text-muted-foreground hover:text-foreground"
+              >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -320,7 +337,10 @@ function AMMetadataPanel({
                     : formatRoleLabel(role.guardianRoleId, amRoles)}
               </span>
               {onSetRoleGuardian && (
-                <button onClick={() => startEdit('guardian')} className="text-muted-foreground hover:text-foreground">
+                <button
+                  onClick={() => startEdit('guardian')}
+                  className="text-muted-foreground hover:text-foreground"
+                >
                   <Pencil className="h-3 w-3" />
                 </button>
               )}
@@ -345,10 +365,18 @@ function AMMetadataPanel({
                 placeholder="seconds"
               />
               <span className="text-xs text-muted-foreground">seconds</span>
-              <button onClick={saveEdit} disabled={isSaving} className="text-green-600 hover:text-green-700">
+              <button
+                onClick={saveEdit}
+                disabled={isSaving}
+                className="text-green-600 hover:text-green-700"
+              >
                 <Check className="h-3.5 w-3.5" />
               </button>
-              <button onClick={cancelEdit} disabled={isSaving} className="text-muted-foreground hover:text-foreground">
+              <button
+                onClick={cancelEdit}
+                disabled={isSaving}
+                className="text-muted-foreground hover:text-foreground"
+              >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -358,7 +386,10 @@ function AMMetadataPanel({
                 {role.grantDelay > 0 ? formatSecondsToReadable(role.grantDelay) : 'None'}
               </span>
               {onSetGrantDelay && (
-                <button onClick={() => startEdit('delay')} className="text-muted-foreground hover:text-foreground">
+                <button
+                  onClick={() => startEdit('delay')}
+                  className="text-muted-foreground hover:text-foreground"
+                >
                   <Pencil className="h-3 w-3" />
                 </button>
               )}

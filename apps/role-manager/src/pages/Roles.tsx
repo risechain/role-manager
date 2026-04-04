@@ -52,6 +52,7 @@ import type { AccountData } from '../components/Roles/RoleDetails';
 import { PageEmptyState } from '../components/Shared/PageEmptyState';
 import { PageHeader } from '../components/Shared/PageHeader';
 import { TypeToConfirmDialog } from '../components/Shared/TypeToConfirmDialog';
+import { DEFAULT_EXECUTION_CONFIG } from '../constants';
 import {
   useAllNetworks,
   useContractDisplayName,
@@ -66,7 +67,6 @@ import {
 import { hasAccessManagerCapability } from '../hooks/useContractCapabilities';
 import { useRenounceDialog, type RenounceType } from '../hooks/useRenounceDialog';
 import { useSelectedContract } from '../hooks/useSelectedContract';
-import { DEFAULT_EXECUTION_CONFIG } from '../constants';
 import type { AdminDelayInfo } from '../types/admin';
 import { createGetAccountUrl } from '../utils/explorer-urls';
 

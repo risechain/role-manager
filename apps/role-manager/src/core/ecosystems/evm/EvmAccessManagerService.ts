@@ -212,6 +212,42 @@ export class EvmAccessManagerService implements AccessManagerService {
     return allLogs;
   }
 
+  private async getLogsChunkedMulti(params: {
+    address: Address;
+    events: any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+    fromBlock: bigint;
+    toBlock: bigint;
+    onChunkComplete?: (scanned: bigint, total: bigint) => void;
+  }): // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  Promise<any[]> {
+    const allLogs: unknown[] = [];
+    let current = params.fromBlock;
+    const total = params.toBlock - params.fromBlock + 1n;
+
+    while (current <= params.toBlock) {
+      const chunkEnd = current + EvmAccessManagerService.LOG_CHUNK_SIZE - 1n;
+      const end = chunkEnd > params.toBlock ? params.toBlock : chunkEnd;
+
+      const logs = await this.publicClient.getLogs({
+        address: params.address,
+        events: params.events,
+        fromBlock: current,
+        toBlock: end,
+      });
+
+      allLogs.push(...logs);
+      current = end + 1n;
+
+      params.onChunkComplete?.(end - params.fromBlock + 1n, total);
+
+      if (current <= params.toBlock) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+
+    return allLogs;
+  }
+
   // ── Read Operations ──
 
   async getRoles(managerAddress: string, options?: SyncReadOptions): Promise<AccessManagerRole[]> {
@@ -225,20 +261,19 @@ export class EvmAccessManagerService implements AccessManagerService {
 
     const toBlock = latestBlock;
 
-    // Discover roles via events (chunked to respect RPC block range limits)
-    const [grantLogs, revokeLogs, labelLogs] = await Promise.all([
-      this.getLogsChunked({
-        address,
-        fromBlock,
-        toBlock,
-        onChunkComplete: (scanned, total) => {
-          options?.onProgress?.({
-            phase: 'scanning-events',
-            blocksScanned: Number(scanned),
-            blocksTotal: Number(total),
-          });
-        },
-        event: {
+    const roleLogs = await this.getLogsChunkedMulti({
+      address,
+      fromBlock,
+      toBlock,
+      onChunkComplete: (scanned, total) => {
+        options?.onProgress?.({
+          phase: 'scanning-events',
+          blocksScanned: Number(scanned),
+          blocksTotal: Number(total),
+        });
+      },
+      events: [
+        {
           type: 'event',
           name: 'RoleGranted',
           inputs: [
@@ -249,12 +284,7 @@ export class EvmAccessManagerService implements AccessManagerService {
             { name: 'newMember', type: 'bool', indexed: false },
           ],
         },
-      }),
-      this.getLogsChunked({
-        address,
-        fromBlock,
-        toBlock,
-        event: {
+        {
           type: 'event',
           name: 'RoleRevoked',
           inputs: [
@@ -262,12 +292,7 @@ export class EvmAccessManagerService implements AccessManagerService {
             { name: 'account', type: 'address', indexed: true },
           ],
         },
-      }),
-      this.getLogsChunked({
-        address,
-        fromBlock,
-        toBlock,
-        event: {
+        {
           type: 'event',
           name: 'RoleLabel',
           inputs: [
@@ -275,8 +300,17 @@ export class EvmAccessManagerService implements AccessManagerService {
             { name: 'label', type: 'string', indexed: false },
           ],
         },
-      }),
-    ]);
+      ],
+    });
+    const grantLogs = roleLogs.filter(
+      (log: { eventName?: string }) => log.eventName === 'RoleGranted'
+    );
+    const revokeLogs = roleLogs.filter(
+      (log: { eventName?: string }) => log.eventName === 'RoleRevoked'
+    );
+    const labelLogs = roleLogs.filter(
+      (log: { eventName?: string }) => log.eventName === 'RoleLabel'
+    );
 
     // Build label map (latest label wins)
     type LogEntry<T> = { args: T };
@@ -434,12 +468,12 @@ export class EvmAccessManagerService implements AccessManagerService {
 
     type LogEntry<T> = { args: T; blockNumber: bigint; transactionHash: string };
 
-    const [grantLogs, revokeLogs, targetRoleLogs, labelLogs] = await Promise.all([
-      this.getLogsChunked({
-        address,
-        fromBlock,
-        toBlock,
-        event: {
+    const historyLogs = await this.getLogsChunkedMulti({
+      address,
+      fromBlock,
+      toBlock,
+      events: [
+        {
           type: 'event',
           name: 'RoleGranted',
           inputs: [
@@ -450,12 +484,7 @@ export class EvmAccessManagerService implements AccessManagerService {
             { name: 'newMember', type: 'bool', indexed: false },
           ],
         },
-      }),
-      this.getLogsChunked({
-        address,
-        fromBlock,
-        toBlock,
-        event: {
+        {
           type: 'event',
           name: 'RoleRevoked',
           inputs: [
@@ -463,12 +492,7 @@ export class EvmAccessManagerService implements AccessManagerService {
             { name: 'account', type: 'address', indexed: true },
           ],
         },
-      }),
-      this.getLogsChunked({
-        address,
-        fromBlock,
-        toBlock,
-        event: {
+        {
           type: 'event',
           name: 'TargetFunctionRoleUpdated',
           inputs: [
@@ -477,12 +501,7 @@ export class EvmAccessManagerService implements AccessManagerService {
             { name: 'roleId', type: 'uint64', indexed: true },
           ],
         },
-      }),
-      this.getLogsChunked({
-        address,
-        fromBlock,
-        toBlock,
-        event: {
+        {
           type: 'event',
           name: 'RoleLabel',
           inputs: [
@@ -490,8 +509,20 @@ export class EvmAccessManagerService implements AccessManagerService {
             { name: 'label', type: 'string', indexed: false },
           ],
         },
-      }),
-    ]);
+      ],
+    });
+    const grantLogs = historyLogs.filter(
+      (log: { eventName?: string }) => log.eventName === 'RoleGranted'
+    );
+    const revokeLogs = historyLogs.filter(
+      (log: { eventName?: string }) => log.eventName === 'RoleRevoked'
+    );
+    const targetRoleLogs = historyLogs.filter(
+      (log: { eventName?: string }) => log.eventName === 'TargetFunctionRoleUpdated'
+    );
+    const labelLogs = historyLogs.filter(
+      (log: { eventName?: string }) => log.eventName === 'RoleLabel'
+    );
 
     type EventEntry = {
       type: 'grant' | 'revoke' | 'target-role' | 'label';
@@ -633,12 +664,12 @@ export class EvmAccessManagerService implements AccessManagerService {
     const fromBlock = options?.fromBlock ?? (await this.getDeploymentBlock(address));
     const toBlock = await this.publicClient.getBlockNumber();
 
-    const [scheduledLogs, executedLogs, canceledLogs] = await Promise.all([
-      this.getLogsChunked({
-        address,
-        fromBlock,
-        toBlock,
-        event: {
+    const operationLogs = await this.getLogsChunkedMulti({
+      address,
+      fromBlock,
+      toBlock,
+      events: [
+        {
           type: 'event',
           name: 'OperationScheduled',
           inputs: [
@@ -650,12 +681,7 @@ export class EvmAccessManagerService implements AccessManagerService {
             { name: 'data', type: 'bytes', indexed: false },
           ],
         },
-      }),
-      this.getLogsChunked({
-        address,
-        fromBlock,
-        toBlock,
-        event: {
+        {
           type: 'event',
           name: 'OperationExecuted',
           inputs: [
@@ -663,12 +689,7 @@ export class EvmAccessManagerService implements AccessManagerService {
             { name: 'nonce', type: 'uint32', indexed: true },
           ],
         },
-      }),
-      this.getLogsChunked({
-        address,
-        fromBlock,
-        toBlock,
-        event: {
+        {
           type: 'event',
           name: 'OperationCanceled',
           inputs: [
@@ -676,8 +697,17 @@ export class EvmAccessManagerService implements AccessManagerService {
             { name: 'nonce', type: 'uint32', indexed: true },
           ],
         },
-      }),
-    ]);
+      ],
+    });
+    const scheduledLogs = operationLogs.filter(
+      (log: { eventName?: string }) => log.eventName === 'OperationScheduled'
+    );
+    const executedLogs = operationLogs.filter(
+      (log: { eventName?: string }) => log.eventName === 'OperationExecuted'
+    );
+    const canceledLogs = operationLogs.filter(
+      (log: { eventName?: string }) => log.eventName === 'OperationCanceled'
+    );
 
     type LogWithArgs<T> = { args: T };
     const executedOps = new Set<string>();
