@@ -43,10 +43,14 @@ export function SafeAppSyncProvider({ children }: SafeAppSyncProviderProps): Rea
       `Attempting Safe auto-connect for network ${selectedNetwork.id}.`
     );
 
-    const connectResult = connect({ connector: safeConnector });
-    void Promise.resolve(connectResult).catch((error) => {
+    try {
+      const connectResult = connect({ connector: safeConnector });
+      void Promise.resolve(connectResult).catch((error) => {
+        logger.warn('SafeAppSyncProvider', 'Safe auto-connect failed.', error);
+      });
+    } catch (error) {
       logger.warn('SafeAppSyncProvider', 'Safe auto-connect failed.', error);
-    });
+    }
   }, [connect, isConnected, isConnecting, isIframe, safeConnector, selectedNetwork]);
 
   useEffect(() => {

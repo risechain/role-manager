@@ -154,4 +154,29 @@ describe('SafeAppSyncProvider', () => {
       expect(mockSetSelectedNetwork).toHaveBeenCalledWith(mockState.networks[1]);
     });
   });
+
+  it('handles synchronous Safe connector errors without crashing', async () => {
+    Object.defineProperty(window, 'parent', {
+      configurable: true,
+      value: {},
+    });
+
+    mockConnect.mockImplementationOnce(() => {
+      throw new Error('sync connect failure');
+    });
+
+    render(
+      <SafeAppSyncProvider>
+        <div>content</div>
+      </SafeAppSyncProvider>
+    );
+
+    await waitFor(() => {
+      expect(mockConnect).toHaveBeenCalledWith({
+        connector: mockState.connectStatus.connectors[0],
+      });
+    });
+
+    expect(screen.getByText('content')).toBeDefined();
+  });
 });
