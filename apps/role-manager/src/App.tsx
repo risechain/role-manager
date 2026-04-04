@@ -16,6 +16,7 @@ import { AccessManagerSyncProvider } from './context/AccessManagerSyncContext';
 import { AliasLabelBridge } from './context/AliasLabelBridge';
 import { BlockTimeProvider } from './context/BlockTimeContext';
 import { ContractProvider } from './context/ContractContext';
+import { SafeAppSyncProvider } from './context/SafeAppSyncProvider';
 import { WalletSyncProvider } from './context/WalletSyncProvider';
 import { getNetworkById, getRuntime } from './core/ecosystems/ecosystemManager';
 import { AddressBook } from './pages/AddressBook';
@@ -137,74 +138,76 @@ function App() {
                           loadConfigModule={loadAppConfigModule}
                         >
                           <WalletSyncProvider>
-                            <MainLayout>
-                              <Routes>
-                                <Route
-                                  path="/"
-                                  element={
-                                    <TrackedRoute name="Dashboard">
-                                      <Dashboard />
-                                    </TrackedRoute>
-                                  }
-                                />
-                                <Route
-                                  path="/authorized-accounts"
-                                  element={
-                                    <TrackedRoute name="Authorized Accounts">
-                                      <AuthorizedAccounts />
-                                    </TrackedRoute>
-                                  }
-                                />
-                                <Route
-                                  path="/roles"
-                                  element={
-                                    <TrackedRoute name="Roles">
-                                      <Roles />
-                                    </TrackedRoute>
-                                  }
-                                />
-                                <Route
-                                  path="/role-changes"
-                                  element={
-                                    <TrackedRoute name="Role Changes">
-                                      <RoleChanges />
-                                    </TrackedRoute>
-                                  }
-                                />
-                                <Route
-                                  path="/targets"
-                                  element={
-                                    <TrackedRoute name="Targets">
-                                      <Targets />
-                                    </TrackedRoute>
-                                  }
-                                />
-                                <Route
-                                  path="/operations"
-                                  element={
-                                    <TrackedRoute name="Operations">
-                                      <Operations />
-                                    </TrackedRoute>
-                                  }
-                                />
-                                <Route
-                                  path="/contract"
-                                  element={
-                                    <TrackedRoute name="Contract">
-                                      <ContractInteraction />
-                                    </TrackedRoute>
-                                  }
-                                />
-                                <Route
-                                  path="/address-book"
-                                  element={
-                                    <TrackedRoute name="Address Book">
-                                      <AddressBook />
-                                    </TrackedRoute>
-                                  }
-                                />
-                              </Routes>
-                            </MainLayout>
+                            <SafeAppSyncProvider>
+                              <MainLayout>
+                                <Routes>
+                                  <Route
+                                    path="/"
+                                    element={
+                                      <TrackedRoute name="Dashboard">
+                                        <Dashboard />
+                                      </TrackedRoute>
+                                    }
+                                  />
+                                  <Route
+                                    path="/authorized-accounts"
+                                    element={
+                                      <TrackedRoute name="Authorized Accounts">
+                                        <AuthorizedAccounts />
+                                      </TrackedRoute>
+                                    }
+                                  />
+                                  <Route
+                                    path="/roles"
+                                    element={
+                                      <TrackedRoute name="Roles">
+                                        <Roles />
+                                      </TrackedRoute>
+                                    }
+                                  />
+                                  <Route
+                                    path="/role-changes"
+                                    element={
+                                      <TrackedRoute name="Role Changes">
+                                        <RoleChanges />
+                                      </TrackedRoute>
+                                    }
+                                  />
+                                  <Route
+                                    path="/targets"
+                                    element={
+                                      <TrackedRoute name="Targets">
+                                        <Targets />
+                                      </TrackedRoute>
+                                    }
+                                  />
+                                  <Route
+                                    path="/operations"
+                                    element={
+                                      <TrackedRoute name="Operations">
+                                        <Operations />
+                                      </TrackedRoute>
+                                    }
+                                  />
+                                  <Route
+                                    path="/contract"
+                                    element={
+                                      <TrackedRoute name="Contract">
+                                        <ContractInteraction />
+                                      </TrackedRoute>
+                                    }
+                                  />
+                                  <Route
+                                    path="/address-book"
+                                    element={
+                                      <TrackedRoute name="Address Book">
+                                        <AddressBook />
+                                      </TrackedRoute>
+                                    }
+                                  />
+                                </Routes>
+                              </MainLayout>
+                            </SafeAppSyncProvider>
                           </WalletSyncProvider>
                         </WalletStateProvider>
                       </BlockTimeProvider>
