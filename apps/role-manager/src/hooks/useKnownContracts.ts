@@ -55,6 +55,17 @@ export interface KnownContract {
 
 const abiCache = new Map<string, KnownFunction[]>();
 
+export function __resetKnownContractsAbiCacheForTests(): void {
+  abiCache.clear();
+}
+
+export function __seedKnownContractsAbiCacheForTests(
+  address: string,
+  functions: KnownFunction[]
+): void {
+  abiCache.set(address.toLowerCase(), functions);
+}
+
 async function loadContractFunctions(
   runtime: RoleManagerRuntime,
   address: string
@@ -150,7 +161,18 @@ export function useKnownContracts(): {
   const loadFunctionsFor = useCallback(
     (address: string) => {
       const addr = address.toLowerCase();
-      if (abiCache.has(addr) || loadingRef.current.has(addr) || !runtime) return;
+      const cached = abiCache.get(addr);
+      if (cached) {
+        setFunctionsByAddress((prev) => {
+          if (prev.get(addr) === cached) return prev;
+          const next = new Map(prev);
+          next.set(addr, cached);
+          return next;
+        });
+        return;
+      }
+
+      if (loadingRef.current.has(addr) || !runtime) return;
 
       loadingRef.current.add(addr);
       setLoadingAddresses((prev) => new Set(prev).add(addr));
