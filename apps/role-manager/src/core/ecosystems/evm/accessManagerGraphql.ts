@@ -13,7 +13,7 @@
 
 import { userNetworkServiceConfigService } from '@openzeppelin/ui-utils';
 
-import { AM_PUBLIC_ROLE_ID } from '../../../constants';
+import { AM_ADMIN_ROLE_ID, AM_PUBLIC_ROLE_ID } from '../../../constants';
 import type {
   AccessManagerMember,
   AccessManagerRole,
@@ -250,7 +250,7 @@ export async function fetchRolesFromSubgraph(
   return data.roles.items.map((r) => ({
     roleId: String(r.id),
     label: r.label,
-    adminRoleId: r.adminRoleId ? String(r.adminRoleId) : AM_PUBLIC_ROLE_ID,
+    adminRoleId: r.adminRoleId ? String(r.adminRoleId) : AM_ADMIN_ROLE_ID,
     guardianRoleId: r.guardianRoleId ? String(r.guardianRoleId) : AM_PUBLIC_ROLE_ID,
     grantDelay: r.grantDelay,
     members: r.members.items.map(
