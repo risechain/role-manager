@@ -931,7 +931,13 @@ export class EvmAccessManagerService implements AccessManagerService {
     }
 
     if (this.transactionExecutor) {
-      return this.transactionExecutor(transactionData, config, onStatus);
+      try {
+        return await this.transactionExecutor(transactionData, config, onStatus);
+      } catch (error) {
+        if (!this.shouldFallbackToDirectWalletExecution(error)) {
+          throw error;
+        }
+      }
     }
 
     onStatus('pendingSignature', {});
@@ -954,6 +960,17 @@ export class EvmAccessManagerService implements AccessManagerService {
       account: walletClient.account,
     });
     return { id: hash };
+  }
+
+  private shouldFallbackToDirectWalletExecution(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    const normalized = message.toLowerCase();
+
+    return (
+      normalized.includes('no chain was provided') ||
+      (normalized.includes('walletclient') && normalized.includes('chain')) ||
+      normalized.includes('chain argument')
+    );
   }
 
   async grantRole(

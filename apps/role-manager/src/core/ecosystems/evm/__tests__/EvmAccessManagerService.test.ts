@@ -76,4 +76,43 @@ describe('EvmAccessManagerService', () => {
     expect(walletClient.sendTransaction).toHaveBeenCalledTimes(1);
     expect(publicClient.waitForTransactionReceipt).not.toHaveBeenCalled();
   });
+
+  it('falls back to direct wallet execution when the runtime executor has no bound chain', async () => {
+    const publicClient = {
+      waitForTransactionReceipt: vi.fn(),
+    } as unknown as import('viem').PublicClient;
+
+    const service = new EvmAccessManagerService(publicClient, null, 1);
+    const walletClient = {
+      account: ACCOUNT_ADDRESS,
+      chain: { id: 1 },
+      sendTransaction: vi.fn().mockResolvedValue('0xfallbackhash'),
+    };
+    const executor = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          'Transaction failed (EOA): No chain was provided to the request. Please provide a chain.'
+        )
+      );
+
+    service.setTransactionExecutor(executor);
+    service.setWalletClientProvider(
+      async () => walletClient as unknown as import('viem').WalletClient
+    );
+
+    const result = await service.grantRole(
+      MANAGER_ADDRESS,
+      '0',
+      ACCOUNT_ADDRESS,
+      0,
+      EXECUTION_CONFIG,
+      vi.fn()
+    );
+
+    expect(result).toEqual({ id: '0xfallbackhash' });
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(walletClient.sendTransaction).toHaveBeenCalledTimes(1);
+    expect(publicClient.waitForTransactionReceipt).not.toHaveBeenCalled();
+  });
 });
