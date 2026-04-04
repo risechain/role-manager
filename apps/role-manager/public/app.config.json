@@ -5,11 +5,11 @@
     "access_control_indexer": true
   },
   "rpcEndpoints": {
-    "ethereum-mainnet": "https://eth.llamarpc.com",
-    "arbitrum-mainnet": "https://arb1.arbitrum.io/rpc",
-    "polygon-mainnet": "https://polygon-rpc.com",
-    "optimism-mainnet": "https://mainnet.optimism.io",
-    "base-mainnet": "https://mainnet.base.org"
+    "ethereum-mainnet": "/api/rpc/ethereum",
+    "arbitrum-mainnet": "/api/rpc/arbitrum",
+    "polygon-mainnet": "/api/rpc/polygon",
+    "optimism-mainnet": "/api/rpc/optimism",
+    "base-mainnet": "/api/rpc/base"
   },
   "indexerEndpoints": {},
   "globalServiceConfigs": {
