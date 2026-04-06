@@ -91,6 +91,44 @@ async function probeAccessManager(
 }
 
 /**
+ * Detect Ownable by probing owner() directly via RPC.
+ * Used as a fallback when ABI-based detection fails (e.g., proxy contracts
+ * whose implementation ABI couldn't be loaded from Etherscan/Sourcify).
+ */
+async function probeOwnable(
+  runtime: RoleManagerRuntime,
+  contractAddress: string
+): Promise<boolean> {
+  if (runtime.networkConfig.ecosystem !== 'evm') return false;
+
+  try {
+    const networkConfig = runtime.networkConfig as { rpcUrl: string };
+    const { createPublicClient, http } = await import('viem');
+
+    const client = createPublicClient({ transport: http(networkConfig.rpcUrl) });
+
+    const owner = await client.readContract({
+      address: contractAddress as `0x${string}`,
+      abi: [
+        {
+          type: 'function',
+          name: 'owner',
+          inputs: [],
+          outputs: [{ name: '', type: 'address' }],
+          stateMutability: 'view',
+        },
+      ],
+      functionName: 'owner',
+    });
+
+    // If owner() returns a valid address, the contract is Ownable
+    return typeof owner === 'string' && owner.startsWith('0x');
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Hook that detects access control capabilities for a given contract.
  *
  * Uses the AccessControlService from the runtime to determine what
@@ -186,7 +224,8 @@ export function useContractCapabilities(
         return baseCaps as ExtendedCapabilities;
       }
 
-      // Fallback: probe via RPC
+      // Fallback: probe via RPC (covers proxy contracts whose implementation
+      // ABI couldn't be loaded from Etherscan/Sourcify)
       if (runtime) {
         const isAccessManager = await probeAccessManager(runtime, contractAddress);
         if (isAccessManager) {
@@ -196,6 +235,15 @@ export function useContractCapabilities(
             hasScheduledOperations: true,
             hasTargetManagement: true,
           } as ExtendedCapabilities;
+        }
+
+        // Probe Ownable via owner() call — catches proxy contracts where
+        // the adapter couldn't resolve the implementation ABI
+        if (!baseCaps.hasOwnable) {
+          const isOwnable = await probeOwnable(runtime, contractAddress);
+          if (isOwnable) {
+            return { ...baseCaps, hasOwnable: true } as ExtendedCapabilities;
+          }
         }
       }
 
