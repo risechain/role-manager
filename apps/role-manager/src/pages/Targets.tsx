@@ -133,6 +133,7 @@ export function Targets() {
   const [newTarget, setNewTarget] = useState('');
   const [newSelector, setNewSelector] = useState('');
   const [newRoleId, setNewRoleId] = useState('');
+  const [isCustomTarget, setIsCustomTarget] = useState(false);
 
   // Get functions for selected target from known contracts
   const selectedTargetFunctions = useMemo(() => {
@@ -237,8 +238,19 @@ export function Targets() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-muted-foreground">Target Contract</label>
-                {knownContracts.length > 0 ? (
-                  <Select value={newTarget} onValueChange={handleTargetChange}>
+                {knownContracts.length > 0 && !isCustomTarget ? (
+                  <Select
+                    value={newTarget}
+                    onValueChange={(v) => {
+                      if (v === '__custom__') {
+                        setIsCustomTarget(true);
+                        setNewTarget('');
+                        setNewSelector('');
+                      } else {
+                        handleTargetChange(v);
+                      }
+                    }}
+                  >
                     <SelectTrigger className="h-9 text-sm font-mono">
                       <SelectValue placeholder="Select target" />
                     </SelectTrigger>
@@ -252,24 +264,28 @@ export function Targets() {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <input
-                    type="text"
-                    value={newTarget}
-                    onChange={(e) => handleTargetChange(e.target.value)}
-                    placeholder="0x..."
-                    className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
-                  />
-                )}
-                {newTarget === '__custom__' && (
-                  <input
-                    type="text"
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v.length === 42) handleTargetChange(v);
-                    }}
-                    placeholder="Paste address 0x..."
-                    className="mt-1 px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
-                  />
+                  <div className="flex flex-col gap-1">
+                    <input
+                      type="text"
+                      value={newTarget}
+                      onChange={(e) => handleTargetChange(e.target.value)}
+                      placeholder="0x..."
+                      className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+                    />
+                    {knownContracts.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCustomTarget(false);
+                          setNewTarget('');
+                          setNewSelector('');
+                        }}
+                        className="text-xs text-muted-foreground underline self-start"
+                      >
+                        Select from list
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               <div className="flex flex-col gap-1">

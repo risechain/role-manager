@@ -83,6 +83,7 @@ export function Operations() {
 
   // Shared form state — only one form is visible at a time
   const [formTarget, setFormTarget] = useState('');
+  const [isCustomTarget, setIsCustomTarget] = useState(false);
   const [formFunctionId, setFormFunctionId] = useState('');
   const [formFunctionArgs, setFormFunctionArgs] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState('');
@@ -110,7 +111,7 @@ export function Operations() {
       setFormFunctionId('');
       setFormFunctionArgs({});
       setFormData('');
-      if (addr && addr !== '__custom__') loadFunctionsFor(addr);
+      if (addr && addr.startsWith('0x')) loadFunctionsFor(addr);
     },
     [loadFunctionsFor]
   );
@@ -384,41 +385,58 @@ export function Operations() {
             <div className="grid grid-cols-1 gap-3">
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-muted-foreground">Target Contract</label>
-                {knownContracts.length > 0 ? (
-                  <>
-                    <Select value={formTarget} onValueChange={handleFormTargetChange}>
-                      <SelectTrigger className="h-9 text-sm font-mono">
-                        <SelectValue placeholder="Select target" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {knownContracts.map((c) => (
-                          <SelectItem key={c.address} value={c.address}>
-                            {truncateMiddle(c.address, 6, 4)}
-                          </SelectItem>
-                        ))}
-                        <SelectItem value="__custom__">Custom address...</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {formTarget === '__custom__' && (
-                      <input
-                        type="text"
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (v.length === 42) handleFormTargetChange(v);
-                        }}
-                        placeholder="Paste address 0x..."
-                        className="mt-1 px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
-                      />
-                    )}
-                  </>
-                ) : (
-                  <input
-                    type="text"
+                {knownContracts.length > 0 && !isCustomTarget ? (
+                  <Select
                     value={formTarget}
-                    onChange={(e) => handleFormTargetChange(e.target.value)}
-                    placeholder="0x..."
-                    className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
-                  />
+                    onValueChange={(v) => {
+                      if (v === '__custom__') {
+                        setIsCustomTarget(true);
+                        setFormTarget('');
+                        setFormFunctionId('');
+                        setFormFunctionArgs({});
+                        setFormData('');
+                      } else {
+                        handleFormTargetChange(v);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-9 text-sm font-mono">
+                      <SelectValue placeholder="Select target" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {knownContracts.map((c) => (
+                        <SelectItem key={c.address} value={c.address}>
+                          {truncateMiddle(c.address, 6, 4)}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="__custom__">Custom address...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    <input
+                      type="text"
+                      value={formTarget}
+                      onChange={(e) => handleFormTargetChange(e.target.value)}
+                      placeholder="0x..."
+                      className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+                    />
+                    {knownContracts.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCustomTarget(false);
+                          setFormTarget('');
+                          setFormFunctionId('');
+                          setFormFunctionArgs({});
+                          setFormData('');
+                        }}
+                        className="text-xs text-muted-foreground underline self-start"
+                      >
+                        Select from list
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               {/* Function picker or raw calldata */}
@@ -551,41 +569,58 @@ export function Operations() {
             <div className="grid grid-cols-1 gap-3">
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-muted-foreground">Target Contract</label>
-                {knownContracts.length > 0 ? (
-                  <>
-                    <Select value={formTarget} onValueChange={handleFormTargetChange}>
-                      <SelectTrigger className="h-9 text-sm font-mono">
-                        <SelectValue placeholder="Select target" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {knownContracts.map((c) => (
-                          <SelectItem key={c.address} value={c.address}>
-                            {truncateMiddle(c.address, 6, 4)}
-                          </SelectItem>
-                        ))}
-                        <SelectItem value="__custom__">Custom address...</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {formTarget === '__custom__' && (
-                      <input
-                        type="text"
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (v.length === 42) handleFormTargetChange(v);
-                        }}
-                        placeholder="Paste address 0x..."
-                        className="mt-1 px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
-                      />
-                    )}
-                  </>
-                ) : (
-                  <input
-                    type="text"
+                {knownContracts.length > 0 && !isCustomTarget ? (
+                  <Select
                     value={formTarget}
-                    onChange={(e) => handleFormTargetChange(e.target.value)}
-                    placeholder="0x..."
-                    className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
-                  />
+                    onValueChange={(v) => {
+                      if (v === '__custom__') {
+                        setIsCustomTarget(true);
+                        setFormTarget('');
+                        setFormFunctionId('');
+                        setFormFunctionArgs({});
+                        setFormData('');
+                      } else {
+                        handleFormTargetChange(v);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-9 text-sm font-mono">
+                      <SelectValue placeholder="Select target" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {knownContracts.map((c) => (
+                        <SelectItem key={c.address} value={c.address}>
+                          {truncateMiddle(c.address, 6, 4)}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="__custom__">Custom address...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    <input
+                      type="text"
+                      value={formTarget}
+                      onChange={(e) => handleFormTargetChange(e.target.value)}
+                      placeholder="0x..."
+                      className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+                    />
+                    {knownContracts.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCustomTarget(false);
+                          setFormTarget('');
+                          setFormFunctionId('');
+                          setFormFunctionArgs({});
+                          setFormData('');
+                        }}
+                        className="text-xs text-muted-foreground underline self-start"
+                      >
+                        Select from list
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               {/* Function picker or raw calldata */}
