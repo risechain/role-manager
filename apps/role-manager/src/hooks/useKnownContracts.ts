@@ -131,7 +131,7 @@ export function useKnownContracts(): {
   const [loadingAddresses, setLoadingAddresses] = useState<Set<string>>(new Set());
   const loadingRef = useRef<Set<string>>(new Set());
 
-  // Build contracts list from AM targets
+  // Build contracts list from AM targets + any dynamically-loaded custom addresses
   const contracts = useMemo((): KnownContract[] => {
     const seen = new Set<string>();
     const result: KnownContract[] = [];
@@ -147,10 +147,24 @@ export function useKnownContracts(): {
 
       result.push({
         address: target.target,
-        name: target.target, // Will be overridden by AddressDisplay label in the UI
+        name: target.target,
         isProxy: false,
         functions: fns,
         isLoadingFunctions: loadingAddresses.has(addr),
+      });
+    }
+
+    // Include custom addresses that were loaded via loadFunctionsFor
+    // but aren't AM targets (e.g., pasted addresses in Operations/Targets forms)
+    for (const [addr, fns] of functionsByAddress) {
+      if (seen.has(addr)) continue;
+      seen.add(addr);
+      result.push({
+        address: addr,
+        name: addr,
+        isProxy: false,
+        functions: fns,
+        isLoadingFunctions: false,
       });
     }
 
