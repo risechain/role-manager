@@ -137,12 +137,27 @@ interface ProxyInfo {
 }
 
 /**
+ * Check if a URL points to a Blockscout explorer (not Etherscan).
+ * Blockscout has /api/v2/smart-contracts, Etherscan does not.
+ */
+function isBlockscoutUrl(url: string): boolean {
+  // Etherscan domains (api.etherscan.io, api-sepolia.etherscan.io, etc.)
+  if (/etherscan\.io/i.test(url)) return false;
+  // Other known non-Blockscout explorers
+  if (/polygonscan\.com|arbiscan\.io|basescan\.org|optimistic\.etherscan/i.test(url)) return false;
+  return true;
+}
+
+/**
  * Try Blockscout V2 API for proxy detection (works for Blockscout-based explorers).
  */
 async function fetchProxyFromBlockscout(
   explorerApiUrl: string,
   address: string
 ): Promise<ProxyInfo | null> {
+  // Skip for non-Blockscout explorers (Etherscan doesn't have /v2/smart-contracts)
+  if (!isBlockscoutUrl(explorerApiUrl)) return null;
+
   try {
     const base = explorerApiUrl.replace(/\/+$/, '');
     const apiBase = base.endsWith('/api') ? base : `${base}/api`;
