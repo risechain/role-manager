@@ -4,7 +4,6 @@
     "analytics_enabled": true,
     "access_control_indexer": true
   },
-  "$rpcComment": "Set VITE_RPC_PROXY_URL env var to your deployed rpc-proxy worker URL",
   "rpcEndpoints": {},
   "indexerEndpoints": {},
   "globalServiceConfigs": {
