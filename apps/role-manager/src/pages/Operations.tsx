@@ -118,37 +118,24 @@ export function Operations() {
 
   // Encode calldata when function + args change
   useEffect(() => {
-    if (formUseRawCalldata || !runtime || !formTarget || !formSelectedFunction) return;
+    if (formUseRawCalldata || !formTarget || !formSelectedFunction) return;
     const encodeFn = async () => {
       try {
-        const schema = await runtime.contractLoading.loadContract(formTarget);
-        const fn = schema.functions.find(
-          (f: import('@openzeppelin/ui-types').ContractFunction) =>
-            f.name === formSelectedFunction.name
-        );
-        if (!fn) return;
-        const inputs = fn.inputs ?? [];
-        const fields = inputs.map((p: { name: string; type: string }) => ({
-          id: p.name,
-          name: p.name,
-          label: p.name,
-          type: runtime.typeMapping.mapParameterTypeToFieldType(
-            p.type
-          ) as import('@openzeppelin/ui-types').FieldType,
-          validation: {},
-        }));
-        // Remap arg0/arg1/... to actual parameter names
-        const namedArgs: Record<string, unknown> = {};
-        inputs.forEach((p: { name: string }, i: number) => {
-          namedArgs[p.name] = formFunctionArgs[`arg${i}`] ?? '';
+        const { encodeFunctionData } = await import('viem');
+        const params = formSelectedFunction.params;
+        const abiItem = {
+          type: 'function' as const,
+          name: formSelectedFunction.name,
+          inputs: params.map((p) => ({ name: p.name, type: p.type })),
+          outputs: [],
+          stateMutability: 'nonpayable' as const,
+        };
+        const args = params.map((_, i) => formFunctionArgs[`arg${i}`] ?? '');
+        const encoded = encodeFunctionData({
+          abi: [abiItem],
+          functionName: formSelectedFunction.name,
+          args: args as never,
         });
-        const txData = runtime.execution.formatTransactionData(
-          schema,
-          fn.id,
-          namedArgs,
-          fields
-        );
-        const encoded = (txData as { data?: string }).data ?? '';
         if (encoded) setFormData(encoded);
       } catch {
         // encoding failed — user can still paste raw calldata
