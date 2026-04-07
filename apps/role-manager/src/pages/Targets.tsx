@@ -7,7 +7,7 @@
  * toggle target open/closed status.
  */
 
-import { Lock, Plus, RefreshCw, Send, Shield, Unlock, X } from 'lucide-react';
+import { Lock, Plus, RefreshCw, Shield, Unlock, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCallback, useMemo, useState } from 'react';
 
@@ -135,11 +135,6 @@ export function Targets() {
   const [newRoleId, setNewRoleId] = useState('');
   const [isCustomTarget, setIsCustomTarget] = useState(false);
 
-  // Batch: collect entries before submitting
-  const [batchEntries, setBatchEntries] = useState<
-    Array<{ target: string; selector: string; selectorName: string; roleId: string; roleLabel: string }>
-  >([]);
-
   // Get functions for selected target from known contracts
   const selectedTargetFunctions = useMemo(() => {
     if (!newTarget) return [];
@@ -159,8 +154,7 @@ export function Targets() {
     [loadFunctionsFor]
   );
 
-  // Add entry to batch (no tx yet)
-  const handleAddToBatch = useCallback(() => {
+  const handleAddMapping = useCallback(async () => {
     if (!newTarget || !newSelector || !newRoleId) {
       toast.error('All fields are required');
       return;
@@ -169,69 +163,29 @@ export function Targets() {
       toast.error('Target must be a valid address');
       return;
     }
+
     const selector = normalizeFunctionSelector(newSelector);
     if (!selector) {
       toast.error('Selector must be 4 bytes (e.g., 0x12345678)');
       return;
     }
-
-    // Find display names
-    const fnMatch = selectedTargetFunctions.find((f) => f.selector === newSelector);
-    const selectorName = fnMatch?.name ?? selector;
-    const roleMatch = roleOptions.find((r) => r.value === newRoleId);
-    const roleLabel = roleMatch?.label ?? `Role #${newRoleId}`;
-
-    // Check for duplicate
-    const isDuplicate = batchEntries.some(
-      (e) => e.target.toLowerCase() === newTarget.toLowerCase() && e.selector === selector && e.roleId === newRoleId
-    );
-    if (isDuplicate) {
-      toast.error('This mapping is already in the batch');
-      return;
-    }
-
-    setBatchEntries((prev) => [...prev, { target: newTarget, selector, selectorName, roleId: newRoleId, roleLabel }]);
-    setNewSelector('');
-    toast.success('Added to batch');
-  }, [newTarget, newSelector, newRoleId, selectedTargetFunctions, roleOptions, batchEntries]);
-
-  // Submit all batched entries
-  const handleSubmitBatch = useCallback(async () => {
-    if (batchEntries.length === 0) return;
-
-    // Group by target + roleId to batch selectors
-    const groups = new Map<string, { target: string; roleId: string; selectors: string[] }>();
-    for (const entry of batchEntries) {
-      const key = `${entry.target.toLowerCase()}:${entry.roleId}`;
-      const group = groups.get(key);
-      if (group) {
-        group.selectors.push(entry.selector);
-      } else {
-        groups.set(key, { target: entry.target, roleId: entry.roleId, selectors: [entry.selector] });
-      }
-    }
-
     try {
-      for (const group of groups.values()) {
-        await setTargetFunctionRole.mutateAsync({
-          target: group.target,
-          selectors: group.selectors,
-          roleId: group.roleId,
-          executionConfig: DEFAULT_EXECUTION_CONFIG,
-        });
-      }
-      toast.success(`${batchEntries.length} mapping(s) submitted`);
-      setBatchEntries([]);
+      await setTargetFunctionRole.mutateAsync({
+        target: newTarget,
+        selectors: [selector],
+        roleId: newRoleId,
+        executionConfig: DEFAULT_EXECUTION_CONFIG,
+      });
+      toast.success('Function role mapping added');
       setShowAddForm(false);
       setNewTarget('');
       setNewSelector('');
       setNewRoleId('');
-      setIsCustomTarget(false);
       await refetch();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to submit batch');
+      toast.error(err instanceof Error ? err.message : 'Failed to add mapping');
     }
-  }, [batchEntries, setTargetFunctionRole, refetch]);
+  }, [newTarget, newSelector, newRoleId, setTargetFunctionRole, refetch]);
 
   const isConnected = !!connectedAddress;
 
@@ -389,53 +343,21 @@ export function Targets() {
                 </Select>
               </div>
             </div>
-            {/* Batch list */}
-            {batchEntries.length > 0 && (
-              <div className="border rounded-md divide-y text-sm">
-                {batchEntries.map((entry, i) => (
-                  <div key={i} className="flex items-center justify-between px-3 py-2">
-                    <div className="flex items-center gap-3 font-mono text-xs">
-                      <span className="text-muted-foreground">{truncateMiddle(entry.target, 6, 4)}</span>
-                      <span>{entry.selectorName}</span>
-                      <span className="text-muted-foreground">→</span>
-                      <span className="font-sans">{entry.roleLabel}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setBatchEntries((prev) => prev.filter((_, j) => j !== i))}
-                      className="text-red-500 hover:text-red-700 text-xs"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-end">
               <Button
                 size="sm"
-                variant="outline"
-                onClick={handleAddToBatch}
-                disabled={!newTarget || !newSelector || !newRoleId}
+                onClick={handleAddMapping}
+                disabled={
+                  !newTarget || !newSelector || !newRoleId || setTargetFunctionRole.isPending
+                }
               >
-                <Plus className="h-3 w-3 mr-1" />
-                Add to Batch
+                {setTargetFunctionRole.isPending ? (
+                  <RefreshCw className="h-3 w-3 animate-spin mr-1" />
+                ) : (
+                  <Plus className="h-3 w-3 mr-1" />
+                )}
+                Add
               </Button>
-              {batchEntries.length > 0 && (
-                <Button
-                  size="sm"
-                  onClick={handleSubmitBatch}
-                  disabled={setTargetFunctionRole.isPending}
-                >
-                  {setTargetFunctionRole.isPending ? (
-                    <RefreshCw className="h-3 w-3 animate-spin mr-1" />
-                  ) : (
-                    <Send className="h-3 w-3 mr-1" />
-                  )}
-                  Submit {batchEntries.length} Mapping{batchEntries.length > 1 ? 's' : ''}
-                </Button>
-              )}
             </div>
           </Card>
         )}
