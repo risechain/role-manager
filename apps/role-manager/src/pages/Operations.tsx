@@ -475,17 +475,10 @@ export function Operations() {
                         Arguments for{' '}
                         <code className="font-mono">{formSelectedFunction.signature}</code>
                       </span>
-                      {formSelectedFunction.signature
-                        .slice(
-                          formSelectedFunction.signature.indexOf('(') + 1,
-                          formSelectedFunction.signature.indexOf(')')
-                        )
-                        .split(',')
-                        .filter(Boolean)
-                        .map((paramType, i) => (
+                      {formSelectedFunction.params.map((param, i) => (
                           <div key={i} className="flex flex-col gap-0.5">
                             <label className="text-xs text-muted-foreground">
-                              arg{i} <span className="opacity-60">({paramType.trim()})</span>
+                              {param.name || `arg${i}`} <span className="opacity-60">({param.type})</span>
                             </label>
                             <input
                               type="text"
@@ -496,7 +489,7 @@ export function Operations() {
                                   [`arg${i}`]: e.target.value,
                                 }))
                               }
-                              placeholder={paramType.trim()}
+                              placeholder={param.type}
                               className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                             />
                           </div>
@@ -660,17 +653,10 @@ export function Operations() {
                         Arguments for{' '}
                         <code className="font-mono">{formSelectedFunction.signature}</code>
                       </span>
-                      {formSelectedFunction.signature
-                        .slice(
-                          formSelectedFunction.signature.indexOf('(') + 1,
-                          formSelectedFunction.signature.indexOf(')')
-                        )
-                        .split(',')
-                        .filter(Boolean)
-                        .map((paramType, i) => (
+                      {formSelectedFunction.params.map((param, i) => (
                           <div key={i} className="flex flex-col gap-0.5">
                             <label className="text-xs text-muted-foreground">
-                              arg{i} <span className="opacity-60">({paramType.trim()})</span>
+                              {param.name || `arg${i}`} <span className="opacity-60">({param.type})</span>
                             </label>
                             <input
                               type="text"
@@ -681,7 +667,7 @@ export function Operations() {
                                   [`arg${i}`]: e.target.value,
                                 }))
                               }
-                              placeholder={paramType.trim()}
+                              placeholder={param.type}
                               className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                             />
                           </div>

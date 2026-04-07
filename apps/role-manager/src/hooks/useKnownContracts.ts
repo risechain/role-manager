@@ -34,6 +34,8 @@ export interface KnownFunction {
   signature: string;
   /** Whether it's a view/pure function */
   isView: boolean;
+  /** Parameter names and types (e.g., [{ name: "to", type: "address" }]) */
+  params: Array<{ name: string; type: string }>;
 }
 
 export interface KnownContract {
@@ -100,6 +102,10 @@ async function loadContractFunctions(
         name: fn.name,
         signature,
         isView: runtime.schema.isViewFunction(fn),
+        params: (fn.inputs ?? []).map((p: { name: string; type: string }) => ({
+          name: p.name,
+          type: p.type,
+        })),
       };
     });
 

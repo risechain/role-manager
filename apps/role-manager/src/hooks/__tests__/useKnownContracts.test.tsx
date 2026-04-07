@@ -77,6 +77,7 @@ describe('useKnownContracts', () => {
         name: 'transfer',
         signature: 'transfer(address,uint256)',
         isView: false,
+        params: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }],
       },
     ]);
 
