@@ -174,6 +174,9 @@ export function useKnownContracts(): {
   // Lazy-load functions for a specific address
   const loadFunctionsFor = useCallback(
     (address: string) => {
+      // Only load for valid-looking EVM addresses
+      if (!address || address.length !== 42 || !address.startsWith('0x')) return;
+
       const addr = address.toLowerCase();
       const cached = abiCache.get(addr);
       if (cached) {
@@ -191,21 +194,27 @@ export function useKnownContracts(): {
       loadingRef.current.add(addr);
       setLoadingAddresses((prev) => new Set(prev).add(addr));
 
-      loadContractFunctions(runtime, address).then((fns) => {
-        loadingRef.current.delete(addr);
-        setLoadingAddresses((prev) => {
-          const next = new Set(prev);
-          next.delete(addr);
-          return next;
-        });
-        if (fns.length > 0) {
-          setFunctionsByAddress((prev) => {
-            const next = new Map(prev);
-            next.set(addr, fns);
+      loadContractFunctions(runtime, address)
+        .then((fns) => {
+          if (fns.length > 0) {
+            setFunctionsByAddress((prev) => {
+              const next = new Map(prev);
+              next.set(addr, fns);
+              return next;
+            });
+          }
+        })
+        .catch(() => {
+          // ABI loading failed (not verified, network error, etc.) — ignore
+        })
+        .finally(() => {
+          loadingRef.current.delete(addr);
+          setLoadingAddresses((prev) => {
+            const next = new Set(prev);
+            next.delete(addr);
             return next;
           });
-        }
-      });
+        });
     },
     [runtime]
   );
