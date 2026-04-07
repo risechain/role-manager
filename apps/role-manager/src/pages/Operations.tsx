@@ -127,7 +127,8 @@ export function Operations() {
             f.name === formSelectedFunction.name
         );
         if (!fn) return;
-        const fields = (fn.inputs ?? []).map((p: { name: string; type: string }) => ({
+        const inputs = fn.inputs ?? [];
+        const fields = inputs.map((p: { name: string; type: string }) => ({
           id: p.name,
           name: p.name,
           label: p.name,
@@ -136,10 +137,15 @@ export function Operations() {
           ) as import('@openzeppelin/ui-types').FieldType,
           validation: {},
         }));
+        // Remap arg0/arg1/... to actual parameter names
+        const namedArgs: Record<string, unknown> = {};
+        inputs.forEach((p: { name: string }, i: number) => {
+          namedArgs[p.name] = formFunctionArgs[`arg${i}`] ?? '';
+        });
         const txData = runtime.execution.formatTransactionData(
           schema,
           fn.id,
-          formFunctionArgs as Record<string, unknown>,
+          namedArgs,
           fields
         );
         const encoded = (txData as { data?: string }).data ?? '';
