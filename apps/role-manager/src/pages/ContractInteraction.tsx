@@ -95,47 +95,18 @@ function FunctionCard({
           submittedInputs,
           fields
         );
+        const executionConfig: ExecutionConfig = { method: 'eoa', allowAny: true };
 
-        const isIframe = typeof window !== 'undefined' && window.parent !== window;
+        const { txHash } = await runtime.execution.signAndBroadcast(
+          txData,
+          executionConfig,
+          (status, details) => {
+            logger.info('ContractInteraction', `Tx status: ${status}`, details);
+          }
+        );
 
-        if (isIframe) {
-          // Safe iframe: send via Safe Apps SDK
-          const { encodeFunctionData } = await import('viem');
-          const abiItem = {
-            type: 'function' as const,
-            name: fn.name,
-            inputs: (fn.inputs ?? []).map((p: { name: string; type: string }) => ({
-              name: p.name,
-              type: p.type,
-            })),
-            outputs: [],
-            stateMutability: 'nonpayable' as const,
-          };
-          const args = params.map((p) => inputs[p.name] ?? '');
-          const data = encodeFunctionData({
-            abi: [abiItem],
-            functionName: fn.name,
-            args: args as never,
-          });
-          const SafeAppsSDK = (await import('@safe-global/safe-apps-sdk')).default;
-          const sdk = new SafeAppsSDK();
-          sdk.txs
-            .send({ txs: [{ to: contractAddress, value: '0', data }] })
-            .catch(() => {});
-          setResult('Transaction sent to Safe for approval');
-          toast.success('Transaction sent to Safe');
-        } else {
-          const executionConfig: ExecutionConfig = { method: 'eoa', allowAny: true };
-          const { txHash } = await runtime.execution.signAndBroadcast(
-            txData,
-            executionConfig,
-            (status, details) => {
-              logger.info('ContractInteraction', `Tx status: ${status}`, details);
-            }
-          );
-          setResult(`Transaction: ${txHash}`);
-          toast.success(`Transaction sent: ${txHash?.slice(0, 10)}...`);
-        }
+        setResult(`Transaction: ${txHash}`);
+        toast.success(`Transaction sent: ${txHash?.slice(0, 10)}...`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

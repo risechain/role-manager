@@ -9,7 +9,13 @@
  * selection state throughout the application.
  */
 
+import { useMemo, useRef } from 'react';
+
+import type { ExecutionConfig, TransactionStatusUpdate } from '@openzeppelin/ui-types';
+
 import { useContractContext } from '../context/ContractContext';
+import { wrapSignAndBroadcastForSafe } from '../core/ecosystems/evm/safeSignAndBroadcast';
+import type { RoleManagerRuntime } from '../core/runtimeAdapter';
 import type { UseSelectedContractReturn } from '../types/dashboard';
 
 /**
@@ -62,13 +68,36 @@ import type { UseSelectedContractReturn } from '../types/dashboard';
  */
 export function useSelectedContract(): UseSelectedContractReturn {
   const context = useContractContext();
+  const patchedRef = useRef<WeakSet<object>>(new WeakSet());
+
+  // Patch runtime.execution.signAndBroadcast for Safe iframe support.
+  // All pages consume runtime through this hook, so patching here ensures
+  // every write operation (AC mutations, Contract page, AM mutations)
+  // routes through the Safe SDK when in a Safe iframe.
+  const runtime = useMemo(() => {
+    const rt = context.runtime as RoleManagerRuntime | null;
+    if (!rt?.execution?.signAndBroadcast) return rt;
+    if (patchedRef.current.has(rt.execution)) return rt;
+
+    const original = rt.execution.signAndBroadcast.bind(rt.execution) as (
+      transactionData: unknown,
+      executionConfig: ExecutionConfig,
+      onStatusChange: (status: string, details: TransactionStatusUpdate) => void,
+      runtimeApiKey?: string
+    ) => Promise<{ txHash: string }>;
+
+    rt.execution.signAndBroadcast = wrapSignAndBroadcastForSafe(original) as typeof rt.execution.signAndBroadcast;
+    patchedRef.current.add(rt.execution);
+
+    return rt;
+  }, [context.runtime]);
 
   return {
     selectedContract: context.selectedContract,
     setSelectedContract: context.setSelectedContract,
     selectedNetwork: context.selectedNetwork,
     setSelectedNetwork: context.setSelectedNetwork,
-    runtime: context.runtime,
+    runtime,
     isRuntimeLoading: context.isRuntimeLoading,
     contracts: context.contracts,
     isContractsLoading: context.isContractsLoading,
