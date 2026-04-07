@@ -77,19 +77,22 @@ async function loadContractFunctions(
     const schema = await runtime.contractLoading.loadContract(address);
     if (!schema?.functions?.length) return [];
 
+    const { keccak256, toHex } = await import('viem');
+
     const fns: KnownFunction[] = schema.functions.map((fn: ContractFunction) => {
-      // Build signature from inputs
       const paramTypes = fn.inputs?.map((p) => p.type).join(',') ?? '';
       const signature = `${fn.name}(${paramTypes})`;
 
-      // Compute selector from signature
+      // Selector: schema ID (if hex) → compute from keccak256(signature)
       let selector = '';
-      try {
-        // Use a simple keccak256 of the signature to get the selector
-        // We'll use the function ID from the schema if available
-        selector = fn.id?.startsWith('0x') ? fn.id.slice(0, 10) : '';
-      } catch {
-        selector = '';
+      if (fn.id?.startsWith('0x')) {
+        selector = fn.id.slice(0, 10);
+      } else {
+        try {
+          selector = keccak256(toHex(signature)).slice(0, 10);
+        } catch {
+          selector = '';
+        }
       }
 
       return {
