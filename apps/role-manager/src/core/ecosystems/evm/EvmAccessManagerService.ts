@@ -925,17 +925,18 @@ export class EvmAccessManagerService implements AccessManagerService {
 
     const SafeAppsSDK = (await import('@safe-global/safe-apps-sdk')).default;
     const sdk = new SafeAppsSDK();
-    const { safeTxHash } = await sdk.txs.send({
-      txs: [
-        {
-          to: managerAddress,
-          value: '0',
-          data,
-        },
-      ],
-    });
 
-    return { id: safeTxHash };
+    // Don't await — Safe's modal blocks the Promise until the user
+    // confirms or adds to batch. Return immediately so the UI stays responsive.
+    sdk.txs
+      .send({
+        txs: [{ to: managerAddress, value: '0', data }],
+      })
+      .catch(() => {
+        // User rejected or Safe communication failed — nothing to do
+      });
+
+    return { id: 'safe-pending' };
   }
 
   private async writeTx(

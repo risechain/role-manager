@@ -58,15 +58,21 @@ export async function executeTransactionWithSafeApp(
 
   onStatusChange('pendingSignature', {});
 
-  const { safeTxHash } = await sdk.txs.send({
-    txs: [
-      {
-        to: transactionData.address,
-        value: (transactionData.value ?? 0n).toString(),
-        data,
-      },
-    ],
-  });
+  // Don't await — Safe's modal blocks the Promise until the user
+  // confirms or adds to batch. Return immediately so the UI stays responsive.
+  sdk.txs
+    .send({
+      txs: [
+        {
+          to: transactionData.address,
+          value: (transactionData.value ?? 0n).toString(),
+          data,
+        },
+      ],
+    })
+    .catch(() => {
+      // User rejected or Safe communication failed
+    });
 
-  return { id: safeTxHash };
+  return { id: 'safe-pending' };
 }
