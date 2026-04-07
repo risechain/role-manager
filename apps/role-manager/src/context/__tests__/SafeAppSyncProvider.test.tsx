@@ -134,7 +134,7 @@ describe('SafeAppSyncProvider', () => {
       value: {},
     });
 
-    mockState.accountStatus = {
+    (mockState as unknown as { accountStatus: Record<string, unknown> }).accountStatus = {
       isConnected: true,
       isConnecting: false,
       isDisconnected: false,
