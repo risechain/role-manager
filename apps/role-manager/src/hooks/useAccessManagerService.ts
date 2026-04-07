@@ -9,10 +9,12 @@
 import { createPublicClient } from 'viem';
 import { useEffect, useRef, useState } from 'react';
 
+import type { TransactionStatusUpdate } from '@openzeppelin/ui-types';
 import { appConfigService, userNetworkServiceConfigService } from '@openzeppelin/ui-utils';
 
 import { EvmAccessManagerService } from '../core/ecosystems/evm/EvmAccessManagerService';
 import { resilientTransport } from '../core/ecosystems/evm/resilientTransport';
+import { executeTransactionWithSafeApp } from '../core/ecosystems/evm/safeAppExecution';
 import type { RoleManagerRuntime } from '../core/runtimeAdapter';
 import type { AccessManagerService } from '../types/access-manager';
 import { getEvmNetworkConfig } from '../utils/evm-network-config';
@@ -81,6 +83,35 @@ export function useAccessManagerService(
       });
 
       const svc = new EvmAccessManagerService(client, null, networkConfig.chainId, etherscanApiKey);
+
+      if (runtime.execution) {
+        svc.setTransactionExecutor(async (transactionData, executionConfig, onStatusChange) => {
+          const safeResult = await executeTransactionWithSafeApp(
+            transactionData as {
+              address: `0x${string}`;
+              abi: import('viem').Abi;
+              functionName: string;
+              args?: readonly unknown[];
+              value?: bigint;
+            },
+            executionConfig,
+            onStatusChange as (status: string, details: TransactionStatusUpdate) => void,
+            networkConfig.chainId
+          );
+
+          if (safeResult) {
+            return safeResult;
+          }
+
+          const { txHash } = await runtime.execution.signAndBroadcast(
+            transactionData,
+            executionConfig,
+            onStatusChange as (status: string, details: TransactionStatusUpdate) => void
+          );
+
+          return { id: txHash };
+        });
+      }
 
       setService(svc);
     } catch {

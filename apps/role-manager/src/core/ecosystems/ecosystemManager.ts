@@ -187,6 +187,29 @@ const networkPromiseCache: Partial<Record<Ecosystem, Promise<NetworkConfig[]>>> 
 const SUPPORTED_ECOSYSTEMS: Ecosystem[] = ['evm', 'stellar', 'polkadot'];
 
 /**
+ * Browser-safe RPC overrides for adapter defaults that fail CORS preflight in production.
+ *
+ * These are app-level defaults only. User-configured and env-configured RPC overrides still win.
+ */
+const BROWSER_SAFE_EVM_RPC_OVERRIDES: Record<string, string> = {
+  'ethereum-mainnet': 'https://eth.llamarpc.com',
+};
+
+function applyBrowserSafeRpcOverrides(networks: NetworkConfig[]): NetworkConfig[] {
+  return networks.map((network) => {
+    if (network.ecosystem !== 'evm') return network;
+
+    const override = BROWSER_SAFE_EVM_RPC_OVERRIDES[network.id];
+    if (!override || network.rpcUrl === override) return network;
+
+    return {
+      ...network,
+      rpcUrl: override,
+    };
+  });
+}
+
+/**
  * Loads only the network config array for an ecosystem. This is much lighter
  * than `loadAdapterModule` because it imports from the `/networks` subpath,
  * which only pulls in static config objects + icons — no adapter runtime,
@@ -236,6 +259,10 @@ async function loadNetworksModule(ecosystem: Ecosystem): Promise<NetworkConfig[]
       } catch (err) {
         logger.warn('EcosystemManager', 'Failed to load custom EVM networks', err);
       }
+    }
+
+    if (ecosystem === 'evm') {
+      allNetworks = applyBrowserSafeRpcOverrides(allNetworks);
     }
 
     networksByEcosystemCache[ecosystem] = allNetworks;

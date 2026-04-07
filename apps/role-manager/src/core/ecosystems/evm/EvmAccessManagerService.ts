@@ -11,12 +11,7 @@
 
 import type { Address, Hex, PublicClient } from 'viem';
 
-import type {
-  ExecutionConfig,
-  OperationResult,
-  TransactionStatusUpdate,
-  TxStatus,
-} from '@openzeppelin/ui-types';
+import type { ExecutionConfig, OperationResult } from '@openzeppelin/ui-types';
 
 import type {
   AccessManagerMember,
@@ -42,11 +37,17 @@ import { ACCESS_MANAGER_ABI } from './accessManagerAbi';
  * which supports Safe, MetaMask, WalletConnect, and all wagmi connectors.
  */
 export type WalletClientProvider = () => Promise<import('viem').WalletClient | null>;
+export type AccessManagerTransactionExecutor = (
+  transactionData: unknown,
+  executionConfig: ExecutionConfig,
+  onStatusChange: AccessManagerStatusCallback
+) => Promise<OperationResult>;
 
 export class EvmAccessManagerService implements AccessManagerService {
   private static readonly EXTERNAL_API_TIMEOUT_MS = 10_000;
   private deploymentBlockCache = new Map<string, bigint>();
   private walletClientProvider: WalletClientProvider | null = null;
+  private transactionExecutor: AccessManagerTransactionExecutor | null = null;
 
   constructor(
     public readonly publicClient: PublicClient,
@@ -61,6 +62,15 @@ export class EvmAccessManagerService implements AccessManagerService {
    */
   setWalletClientProvider(provider: WalletClientProvider): void {
     this.walletClientProvider = provider;
+  }
+
+  /**
+   * Set the transaction executor. When available, write operations delegate to
+   * the runtime execution capability so Safe/multisig flows behave the same as
+   * the app's built-in access-control mutations.
+   */
+  setTransactionExecutor(executor: AccessManagerTransactionExecutor): void {
+    this.transactionExecutor = executor;
   }
 
   /**
@@ -894,14 +904,82 @@ export class EvmAccessManagerService implements AccessManagerService {
     });
   }
 
+  private isSafeIframe(): boolean {
+    return typeof window !== 'undefined' && window.parent !== window;
+  }
+
+  private async writeTxViaSafe(
+    managerAddress: string,
+    functionName: string,
+    args: unknown[],
+    onStatus: AccessManagerStatusCallback
+  ): Promise<OperationResult> {
+    const { encodeFunctionData } = await import('viem');
+    const data = encodeFunctionData({
+      abi: ACCESS_MANAGER_ABI,
+      functionName: functionName as 'grantRole',
+      args: args as never,
+    });
+
+    onStatus('pending' as never, {});
+
+    const SafeAppsSDK = (await import('@safe-global/safe-apps-sdk')).default;
+    const sdk = new SafeAppsSDK();
+    const { safeTxHash } = await sdk.txs.send({
+      txs: [
+        {
+          to: managerAddress,
+          value: '0',
+          data,
+        },
+      ],
+    });
+
+    return { id: safeTxHash };
+  }
+
   private async writeTx(
     managerAddress: string,
     functionName: string,
     args: unknown[],
-    _config: ExecutionConfig,
+    config: ExecutionConfig,
     onStatus: AccessManagerStatusCallback
   ): Promise<OperationResult> {
-    onStatus('pending' as TxStatus, { status: 'pending' } as TransactionStatusUpdate);
+    // Safe iframe: use Safe Apps SDK directly to create a proposal
+    if (this.isSafeIframe()) {
+      return this.writeTxViaSafe(managerAddress, functionName, args, onStatus);
+    }
+
+    const transactionData: Record<string, unknown> = {
+      address: managerAddress as Address,
+      abi: ACCESS_MANAGER_ABI,
+      functionName: functionName as 'grantRole',
+      args: args as never,
+      value: 0n,
+    };
+
+    // Include chain so wagmi/viem writeContract doesn't fail with "No chain provided"
+    if (this.chainId) {
+      const { defineChain } = await import('viem');
+      transactionData.chain = defineChain({
+        id: this.chainId,
+        name: `Chain ${this.chainId}`,
+        nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+        rpcUrls: { default: { http: [] } },
+      });
+    }
+
+    if (this.transactionExecutor) {
+      try {
+        return await this.transactionExecutor(transactionData, config, onStatus);
+      } catch (error) {
+        if (!this.shouldFallbackToDirectWalletExecution(error)) {
+          throw error;
+        }
+      }
+    }
+
+    onStatus('pendingSignature', {});
 
     const walletClient = await this.getWalletClientLazy();
 
@@ -920,22 +998,18 @@ export class EvmAccessManagerService implements AccessManagerService {
       chain: walletClient.chain ?? undefined,
       account: walletClient.account,
     });
+    return { id: hash };
+  }
 
-    onStatus('submitted' as TxStatus, { status: 'submitted', hash } as TransactionStatusUpdate);
+  private shouldFallbackToDirectWalletExecution(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    const normalized = message.toLowerCase();
 
-    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
-
-    const finalStatus = receipt.status === 'success' ? 'confirmed' : 'error';
-    onStatus(
-      finalStatus as TxStatus,
-      {
-        status: finalStatus,
-        hash,
-        receipt,
-      } as unknown as TransactionStatusUpdate
+    return (
+      normalized.includes('no chain was provided') ||
+      (normalized.includes('walletclient') && normalized.includes('chain')) ||
+      normalized.includes('chain argument')
     );
-
-    return { success: receipt.status === 'success', hash } as unknown as OperationResult;
   }
 
   async grantRole(

@@ -11,11 +11,32 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
 
 import type { AccessControlCapabilities } from '@openzeppelin/ui-types';
+import { appConfigService, isValidUrl, userNetworkServiceConfigService } from '@openzeppelin/ui-utils';
 
 import type { RoleManagerRuntime } from '@/core/runtimeAdapter';
 
 import { queryKeys } from './queryKeys';
 import { useAccessControlService } from './useAccessControlService';
+
+/**
+ * Resolve the RPC URL respecting user config > app override > default.
+ * Mirrors the adapter's resolveRpcUrl priority.
+ */
+function resolveProbeRpcUrl(networkId: string, defaultRpcUrl: string): string {
+  const userCfg = userNetworkServiceConfigService.get(networkId, 'rpc') as
+    | { rpcUrl?: string }
+    | undefined;
+  if (userCfg?.rpcUrl && isValidUrl(String(userCfg.rpcUrl))) return String(userCfg.rpcUrl);
+
+  const override = appConfigService.getRpcEndpointOverride(networkId);
+  if (typeof override === 'string' && override && isValidUrl(override)) return override;
+  if (override && typeof override === 'object' && 'http' in override) {
+    const url = (override as { http: string }).http;
+    if (isValidUrl(url)) return url;
+  }
+
+  return defaultRpcUrl;
+}
 
 // ============================================================================
 // Extended Capabilities (includes AccessManager)
@@ -59,16 +80,16 @@ async function probeAccessManager(
   runtime: RoleManagerRuntime,
   contractAddress: string
 ): Promise<boolean> {
-  // Only probe on EVM chains
   if (runtime.networkConfig.ecosystem !== 'evm') return false;
 
   try {
     const networkConfig = runtime.networkConfig as {
+      id: string;
       rpcUrl: string;
       chainId: number;
     };
 
-    const rpcUrl = networkConfig.rpcUrl;
+    const rpcUrl = resolveProbeRpcUrl(networkConfig.id, networkConfig.rpcUrl);
 
     const { createPublicClient, http } = await import('viem');
     const { ACCESS_MANAGER_ABI } = await import('../core/ecosystems/evm/accessManagerAbi');
@@ -85,6 +106,45 @@ async function probeAccessManager(
 
     // ADMIN_ROLE() should return uint64(0) for AccessManager
     return adminRole === 0n;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect Ownable by probing owner() directly via RPC.
+ * Used as a fallback when ABI-based detection fails (e.g., proxy contracts
+ * whose implementation ABI couldn't be loaded from Etherscan/Sourcify).
+ */
+async function probeOwnable(
+  runtime: RoleManagerRuntime,
+  contractAddress: string
+): Promise<boolean> {
+  if (runtime.networkConfig.ecosystem !== 'evm') return false;
+
+  try {
+    const networkConfig = runtime.networkConfig as { id: string; rpcUrl: string };
+    const rpcUrl = resolveProbeRpcUrl(networkConfig.id, networkConfig.rpcUrl);
+    const { createPublicClient, http } = await import('viem');
+
+    const client = createPublicClient({ transport: http(rpcUrl) });
+
+    const owner = await client.readContract({
+      address: contractAddress as `0x${string}`,
+      abi: [
+        {
+          type: 'function',
+          name: 'owner',
+          inputs: [],
+          outputs: [{ name: '', type: 'address' }],
+          stateMutability: 'view',
+        },
+      ],
+      functionName: 'owner',
+    });
+
+    // If owner() returns a valid address, the contract is Ownable
+    return typeof owner === 'string' && owner.startsWith('0x');
   } catch {
     return false;
   }
@@ -186,7 +246,8 @@ export function useContractCapabilities(
         return baseCaps as ExtendedCapabilities;
       }
 
-      // Fallback: probe via RPC
+      // Fallback: probe via RPC (covers proxy contracts whose implementation
+      // ABI couldn't be loaded from Etherscan/Sourcify)
       if (runtime) {
         const isAccessManager = await probeAccessManager(runtime, contractAddress);
         if (isAccessManager) {
@@ -196,6 +257,15 @@ export function useContractCapabilities(
             hasScheduledOperations: true,
             hasTargetManagement: true,
           } as ExtendedCapabilities;
+        }
+
+        // Probe Ownable via owner() call — catches proxy contracts where
+        // the adapter couldn't resolve the implementation ABI
+        if (!baseCaps.hasOwnable) {
+          const isOwnable = await probeOwnable(runtime, contractAddress);
+          if (isOwnable) {
+            return { ...baseCaps, hasOwnable: true } as ExtendedCapabilities;
+          }
         }
       }
 

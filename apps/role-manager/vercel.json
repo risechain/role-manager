@@ -2,9 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "outputDirectory": "dist",
   "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
+    { "source": "/api/rpc/1", "destination": "https://eth.llamarpc.com" },
+    { "source": "/api/rpc/42161", "destination": "https://arb1.arbitrum.io/rpc" },
+    { "source": "/api/rpc/137", "destination": "https://polygon-rpc.com" },
+    { "source": "/api/rpc/10", "destination": "https://mainnet.optimism.io" },
+    { "source": "/api/rpc/8453", "destination": "https://mainnet.base.org" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
