@@ -43,9 +43,7 @@ async function sendViaSafe(
   const SafeAppsSDK = (await import('@safe-global/safe-apps-sdk')).default;
   const sdk = new SafeAppsSDK();
 
-  sdk.txs
-    .send({ txs: [{ to: address, value: value.toString(), data }] })
-    .catch(() => {});
+  sdk.txs.send({ txs: [{ to: address, value: value.toString(), data }] }).catch(() => {});
 
   return { txHash: 'safe-pending' };
 }
@@ -62,7 +60,7 @@ async function sendViaDirectEoa(
   value: bigint,
   onStatusChange: (status: string, details: TransactionStatusUpdate) => void
 ): Promise<{ txHash: string }> {
-  const { createWalletClient, createPublicClient, custom, http } = await import('viem');
+  const { createWalletClient, custom, defineChain } = await import('viem');
 
   const provider = (window as unknown as { ethereum?: unknown }).ethereum;
   if (!provider) throw new Error('No wallet detected');
@@ -75,7 +73,6 @@ async function sendViaDirectEoa(
   const chainHex = (await ethProvider.request({ method: 'eth_chainId' })) as string;
   const chainId = parseInt(chainHex, 16);
 
-  const { defineChain } = await import('viem');
   const chain = defineChain({
     id: chainId,
     name: `Chain ${chainId}`,
@@ -104,27 +101,13 @@ async function sendViaDirectEoa(
     value,
   });
 
-  // Wait for receipt
-  const rpcUrl = (chain.rpcUrls.default.http as readonly string[])[0] as string | undefined;
-  const publicClient = createPublicClient({
-    chain,
-    transport: http(rpcUrl),
-  });
-  try {
-    await publicClient.waitForTransactionReceipt({ hash });
-  } catch {
-    // Receipt wait failed — tx was still submitted
-  }
-
   return { txHash: hash };
 }
 
 /**
  * Wraps signAndBroadcast to handle both Safe and EOA edge cases.
  */
-export function wrapSignAndBroadcastForSafe(
-  original: SignAndBroadcastFn
-): SignAndBroadcastFn {
+export function wrapSignAndBroadcastForSafe(original: SignAndBroadcastFn): SignAndBroadcastFn {
   return async (transactionData, executionConfig, onStatusChange, runtimeApiKey) => {
     const txData = transactionData as {
       address?: string;
