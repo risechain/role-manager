@@ -9,7 +9,7 @@
  * since AccessManager doesn't provide enumeration functions on-chain.
  */
 
-import type { Address, Hex, PublicClient } from 'viem';
+import type { Address, Chain, Hex, PublicClient } from 'viem';
 
 import type { ExecutionConfig, OperationResult } from '@openzeppelin/ui-types';
 
@@ -71,6 +71,17 @@ export class EvmAccessManagerService implements AccessManagerService {
    */
   setTransactionExecutor(executor: AccessManagerTransactionExecutor): void {
     this.transactionExecutor = executor;
+  }
+
+  private getFallbackChain(): Chain | undefined {
+    if (!this.chainId) return undefined;
+
+    return {
+      id: this.chainId,
+      name: `Chain ${this.chainId}`,
+      nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+      rpcUrls: { default: { http: [] } },
+    };
   }
 
   /**
@@ -823,7 +834,7 @@ export class EvmAccessManagerService implements AccessManagerService {
     }
 
     // Strategy 2: fallback to injected provider (window.ethereum)
-    const { createWalletClient, custom, defineChain } = await import('viem');
+    const { createWalletClient, custom } = await import('viem');
     const provider = (window as unknown as { ethereum?: unknown }).ethereum;
     if (!provider) throw new Error('No wallet detected. Please connect a wallet.');
 
@@ -880,14 +891,7 @@ export class EvmAccessManagerService implements AccessManagerService {
       }
     }
 
-    const chain = this.chainId
-      ? defineChain({
-          id: this.chainId,
-          name: `Chain ${this.chainId}`,
-          nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-          rpcUrls: { default: { http: [] } },
-        })
-      : undefined;
+    const chain = this.getFallbackChain();
 
     const client = createWalletClient({
       chain,
@@ -960,15 +964,8 @@ export class EvmAccessManagerService implements AccessManagerService {
     };
 
     // Include chain so wagmi/viem writeContract doesn't fail with "No chain provided"
-    if (this.chainId) {
-      const { defineChain } = await import('viem');
-      transactionData.chain = defineChain({
-        id: this.chainId,
-        name: `Chain ${this.chainId}`,
-        nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-        rpcUrls: { default: { http: [] } },
-      });
-    }
+    const fallbackChain = this.getFallbackChain();
+    if (fallbackChain) transactionData.chain = fallbackChain;
 
     if (this.transactionExecutor) {
       try {
@@ -996,7 +993,7 @@ export class EvmAccessManagerService implements AccessManagerService {
     const hash = await walletClient.sendTransaction({
       to: managerAddress as Address,
       data,
-      chain: walletClient.chain ?? undefined,
+      chain: walletClient.chain ?? fallbackChain,
       account: walletClient.account,
     });
     return { id: hash };

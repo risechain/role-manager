@@ -74,6 +74,11 @@ describe('EvmAccessManagerService', () => {
     expect(result).toEqual({ id: '0xsubmittedhash' });
     expect(onStatus).toHaveBeenCalledWith('pendingSignature', {});
     expect(walletClient.sendTransaction).toHaveBeenCalledTimes(1);
+    expect(walletClient.sendTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chain: expect.objectContaining({ id: 1 }),
+      })
+    );
     expect(publicClient.waitForTransactionReceipt).not.toHaveBeenCalled();
   });
 
