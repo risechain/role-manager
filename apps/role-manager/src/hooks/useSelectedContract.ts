@@ -86,7 +86,29 @@ export function useSelectedContract(): UseSelectedContractReturn {
       runtimeApiKey?: string
     ) => Promise<{ txHash: string }>;
 
-    rt.execution.signAndBroadcast = wrapSignAndBroadcastForSafe(original) as typeof rt.execution.signAndBroadcast;
+    const wrapped = wrapSignAndBroadcastForSafe(original);
+    rt.execution.signAndBroadcast = wrapped as typeof rt.execution.signAndBroadcast;
+
+    // Also patch accessControl's internal executeTransaction callback.
+    // The AC service captures its own execution reference at construction time,
+    // so patching rt.execution alone doesn't cover AC mutations (grantRole, etc.).
+    const ac = rt.accessControl as { executeTransaction?: (...args: unknown[]) => Promise<unknown> } | undefined;
+    if (ac?.executeTransaction) {
+      const originalAcExec = ac.executeTransaction.bind(ac);
+      ac.executeTransaction = (async (...args: unknown[]) => {
+        const [txData, execConfig, onStatus, apiKey] = args as [
+          unknown,
+          ExecutionConfig,
+          (status: string, details: TransactionStatusUpdate) => void,
+          string | undefined,
+        ];
+        const result = await wrapped(txData, execConfig, onStatus, apiKey);
+        return { id: result.txHash };
+      }) as typeof ac.executeTransaction;
+      // Keep original as fallback if Safe wrapper returns non-Safe result
+      void originalAcExec;
+    }
+
     patchedRef.current.add(rt.execution);
 
     return rt;
