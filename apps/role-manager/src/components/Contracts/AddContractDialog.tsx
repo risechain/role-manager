@@ -23,6 +23,7 @@ import { queryKeys } from '@/hooks/queryKeys';
 import {
   detectCapabilitiesWithProbes,
   isContractSupported,
+  probeAccessManager,
   type ExtendedCapabilities,
 } from '@/hooks/useContractCapabilities';
 import type { AddContractDialogProps, AddContractFormData } from '@/types/contracts';
@@ -217,15 +218,23 @@ export function AddContractDialog({
       // Step 1: Load schema
       let result = await loadSchema();
 
-      // Fallback: if schema loading fails on EVM, try with the known AccessManager ABI
+      // Fallback: only use the known AccessManager ABI when the contract actually
+      // probes as AccessManager on-chain. Otherwise we risk persisting the wrong ABI.
       if (!result && runtime?.networkConfig.ecosystem === 'evm' && pendingFormData) {
         try {
-          result = await schemaLoader.load(pendingFormData.address, {
-            contractAddress: pendingFormData.address,
-            contractDefinition: JSON.stringify(ACCESS_MANAGER_ABI),
-          });
+          const shouldTryAccessManagerFallback = await probeAccessManager(
+            runtime,
+            pendingFormData.address
+          );
+
+          if (shouldTryAccessManagerFallback) {
+            result = await schemaLoader.load(pendingFormData.address, {
+              contractAddress: pendingFormData.address,
+              contractDefinition: JSON.stringify(ACCESS_MANAGER_ABI),
+            });
+          }
         } catch {
-          // AccessManager ABI fallback failed too
+          // AccessManager ABI fallback probe or load failed too
         }
       }
 

@@ -122,10 +122,22 @@ export function AccountRow({
             {isCurrentUser && onTransferOwnership && (
               <TransferRoleButton roleType="ownership" onClick={onTransferOwnership} />
             )}
+            {!isCurrentUser && onTransferOwnership && (
+              <span className="text-xs text-muted-foreground text-right leading-tight">
+                Only the current owner can transfer ownership
+              </span>
+            )}
           </>
         ) : isAdminRole && onTransferAdmin ? (
           /* AC DefaultAdminRules pattern: Transfer Admin button only */
-          <>{isCurrentUser && <TransferRoleButton roleType="admin" onClick={onTransferAdmin} />}</>
+          <>
+            {isCurrentUser && <TransferRoleButton roleType="admin" onClick={onTransferAdmin} />}
+            {!isCurrentUser && (
+              <span className="text-xs text-muted-foreground text-right leading-tight">
+                Only the current admin can transfer this role
+              </span>
+            )}
+          </>
         ) : (
           <>
             {/* Normal roles (and AM admin when onTransferAdmin is suppressed) */}

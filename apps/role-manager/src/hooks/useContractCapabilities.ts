@@ -112,7 +112,7 @@ function withCapabilityNote(
  * Detect if a contract is an AccessManager by probing for ADMIN_ROLE() returning uint64(0).
  * Uses dynamic import of viem to avoid bundling it when not needed.
  */
-async function probeAccessManager(
+export async function probeAccessManager(
   runtime: RoleManagerRuntime,
   contractAddress: string
 ): Promise<boolean> {

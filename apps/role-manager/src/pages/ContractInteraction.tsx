@@ -19,7 +19,41 @@ import { cn, logger } from '@openzeppelin/ui-utils';
 import { PageEmptyState } from '../components/Shared/PageEmptyState';
 import { PageHeader } from '../components/Shared/PageHeader';
 import { useContractDisplayName } from '../hooks';
+import { hasAccessManagerCapability, probeAccessManager } from '../hooks/useContractCapabilities';
 import { useSelectedContract } from '../hooks/useSelectedContract';
+
+function schemaHasFunction(schema: ContractSchema, functionName: string): boolean {
+  return (schema.functions ?? []).some((fn) => fn.name === functionName);
+}
+
+function isSchemaCompatibleWithCapabilities(
+  schema: ContractSchema,
+  capabilities: ReturnType<typeof useSelectedContract>['selectedContract']['capabilities']
+): boolean {
+  if (!capabilities) return true;
+
+  if (hasAccessManagerCapability(capabilities)) {
+    return schemaHasFunction(schema, 'ADMIN_ROLE') || schemaHasFunction(schema, 'canCall');
+  }
+
+  if (capabilities.hasOwnable) {
+    return (
+      schemaHasFunction(schema, 'owner') ||
+      schemaHasFunction(schema, 'transferOwnership') ||
+      schemaHasFunction(schema, 'acceptOwnership')
+    );
+  }
+
+  if (capabilities.hasAccessControl) {
+    return (
+      schemaHasFunction(schema, 'hasRole') ||
+      schemaHasFunction(schema, 'grantRole') ||
+      schemaHasFunction(schema, 'revokeRole')
+    );
+  }
+
+  return true;
+}
 
 // =============================================================================
 // FunctionCard — renders a single contract function with inputs and execute
@@ -221,30 +255,87 @@ export function ContractInteraction() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const loadSchema = useCallback(async () => {
-    if (!runtime || !contractAddress) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const loaded = await runtime.contractLoading.loadContract(contractAddress);
-      setSchema(loaded);
-    } catch {
-      // Fallback: try loading with the known AccessManager ABI
-      try {
-        const { ACCESS_MANAGER_ABI } = await import('../core/ecosystems/evm/accessManagerAbi');
-        const fallback = await runtime.contractLoading.loadContract({
-          contractAddress,
-          contractDefinition: JSON.stringify(ACCESS_MANAGER_ABI),
-        } as unknown as string);
-        setSchema(fallback);
-      } catch {
-        // Both auto-detection and AM fallback failed — prompt for manual ABI
-        setNeedsAbi(true);
+  const loadSchema = useCallback(
+    async (forceReload: boolean = false) => {
+      if (!runtime || !contractAddress) return;
+      setIsLoading(true);
+      setError(null);
+      setNeedsAbi(false);
+
+      if (!forceReload && selectedContract?.schema) {
+        try {
+          const storedSchema = JSON.parse(selectedContract.schema) as ContractSchema;
+          if (isSchemaCompatibleWithCapabilities(storedSchema, selectedContract.capabilities)) {
+            setSchema(storedSchema);
+            return;
+          }
+          logger.warn(
+            'ContractInteraction',
+            'Ignoring stored schema because it does not match the detected contract capabilities.'
+          );
+        } catch (storedSchemaError) {
+          logger.warn(
+            'ContractInteraction',
+            'Failed to parse stored schema, falling back to runtime loader.',
+            storedSchemaError
+          );
+        }
       }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [runtime, contractAddress]);
+
+      try {
+        const loaded = await runtime.contractLoading.loadContract(contractAddress);
+        setSchema(loaded);
+        return;
+      } catch (loadError) {
+        const shouldTryAccessManagerFallback =
+          runtime.networkConfig.ecosystem === 'evm' &&
+          (hasAccessManagerCapability(selectedContract?.capabilities) ||
+            (await probeAccessManager(runtime, contractAddress)));
+
+        if (shouldTryAccessManagerFallback) {
+          try {
+            const { ACCESS_MANAGER_ABI } = await import('../core/ecosystems/evm/accessManagerAbi');
+            const fallback = await runtime.contractLoading.loadContract({
+              contractAddress,
+              contractDefinition: JSON.stringify(ACCESS_MANAGER_ABI),
+            } as unknown as string);
+            setSchema(fallback);
+            return;
+          } catch (fallbackError) {
+            logger.warn(
+              'ContractInteraction',
+              'AccessManager ABI fallback failed after positive probe.',
+              fallbackError
+            );
+          }
+        }
+
+        if (forceReload && selectedContract?.schema) {
+          try {
+            const storedSchema = JSON.parse(selectedContract.schema) as ContractSchema;
+            setSchema(storedSchema);
+            toast.error(
+              'Unable to reload ABI from explorer. Using the saved contract schema instead.'
+            );
+            return;
+          } catch (storedSchemaError) {
+            logger.warn(
+              'ContractInteraction',
+              'Failed to parse stored schema after reload attempt.',
+              storedSchemaError
+            );
+          }
+        }
+
+        logger.warn('ContractInteraction', 'Unable to auto-detect contract ABI.', loadError);
+        setSchema(null);
+        setNeedsAbi(true);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [runtime, contractAddress, selectedContract?.schema, selectedContract?.capabilities]
+  );
 
   const loadFromManualAbi = useCallback(async () => {
     if (!runtime || !contractAddress || !manualAbi.trim()) return;
@@ -272,7 +363,7 @@ export function ContractInteraction() {
     setNeedsAbi(false);
     setManualAbi('');
     setSearchQuery('');
-    if (runtime && contractAddress) loadSchema();
+    if (runtime && contractAddress) void loadSchema();
   }, [runtime, contractAddress, loadSchema]);
 
   // Separate read and write functions
@@ -362,7 +453,7 @@ export function ContractInteraction() {
               className="w-full px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono resize-y"
             />
             <div className="flex gap-2 justify-end">
-              <Button variant="outline" size="sm" onClick={loadSchema}>
+              <Button variant="outline" size="sm" onClick={() => void loadSchema(true)}>
                 <RefreshCw className="h-4 w-4 mr-1" />
                 Retry Auto-Detect
               </Button>
@@ -398,7 +489,7 @@ export function ContractInteraction() {
           <Button
             variant="outline"
             size="sm"
-            onClick={loadSchema}
+            onClick={() => void loadSchema(true)}
             disabled={isLoading}
             className="gap-2"
           >
