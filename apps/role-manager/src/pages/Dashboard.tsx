@@ -98,6 +98,7 @@ export function Dashboard() {
     rolesCount,
     uniqueAccountsCount,
     hasAccessControl,
+    hasOwnable,
     hasAccessManager,
     isSyncing,
     syncProgress,
@@ -178,6 +179,7 @@ export function Dashboard() {
 
   // Combined loading state for stats cards (initial load OR manual refresh)
   const isDataLoading = isLoading || isRefreshing;
+  const supportsRoles = hasAccessControl || hasAccessManager || hasOwnable;
 
   // If no contract is selected, show empty state
   if (!hasContract) {
@@ -273,11 +275,11 @@ export function Dashboard() {
             icon={<Shield className="h-5 w-5" />}
             onClick={() => navigate('/roles')}
             isLoading={isDataLoading}
-            hasError={hasError && !(hasAccessControl || hasAccessManager)}
+            hasError={hasError}
             errorMessage={errorMessage}
             onRetry={canRetry ? refetch : undefined}
-            isNotSupported={!(hasAccessControl || hasAccessManager) && !isDataLoading && !hasError}
-            disabled={!(hasAccessControl || hasAccessManager)}
+            isNotSupported={!supportsRoles && !isDataLoading && !hasError}
+            disabled={!supportsRoles}
           />
 
           <DashboardStatsCard

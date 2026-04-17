@@ -147,6 +147,7 @@ export function useDashboardData(
   // Fetch ownership data
   // Only fetch when contract has Ownable capability (prevents errors on AccessControl-only contracts)
   const {
+    ownership,
     isPending: ownershipPending,
     hasError: ownershipHasError,
     errorMessage: ownershipErrorMessage,
@@ -167,8 +168,8 @@ export function useDashboardData(
       if (amRolesPending) return null;
       return amRoles.length;
     }
-    if (rolesPending || rolesSettling) return null;
-    return roles.length;
+    if (rolesPending || rolesSettling || (hasOwnableCapability && ownershipPending)) return null;
+    return roles.length + (ownership?.owner ? 1 : 0);
   }, [
     runtime,
     contractAddress,
@@ -178,6 +179,9 @@ export function useDashboardData(
     rolesPending,
     rolesSettling,
     roles.length,
+    hasOwnableCapability,
+    ownershipPending,
+    ownership?.owner,
   ]);
 
   // Compute unique accounts count using Set-based deduplication
@@ -193,8 +197,19 @@ export function useDashboardData(
       }
       return allMembers.size;
     }
-    if (rolesPending || rolesSettling) return null;
-    return getUniqueAccountsCount(roles);
+    if (rolesPending || rolesSettling || (hasOwnableCapability && ownershipPending)) return null;
+
+    const uniqueCount = getUniqueAccountsCount(roles);
+    if (!ownership?.owner) return uniqueCount;
+
+    const roleMembers = new Set<string>();
+    for (const role of roles) {
+      for (const member of role.members) {
+        roleMembers.add(member.toLowerCase());
+      }
+    }
+
+    return roleMembers.has(ownership.owner.toLowerCase()) ? uniqueCount : uniqueCount + 1;
   }, [
     runtime,
     contractAddress,
@@ -204,6 +219,9 @@ export function useDashboardData(
     rolesPending,
     rolesSettling,
     roles,
+    hasOwnableCapability,
+    ownershipPending,
+    ownership?.owner,
   ]);
 
   // Determine capability flags from detected capabilities (more reliable than inference)

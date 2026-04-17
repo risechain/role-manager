@@ -228,17 +228,17 @@ describe('useDashboardData', () => {
         { wrapper }
       );
 
-      expect(result.current.rolesCount).toBe(2);
+      expect(result.current.rolesCount).toBe(3);
     });
 
-    it('returns correct unique accounts count (deduplicated)', () => {
+    it('returns correct unique accounts count including owner', () => {
       const { result } = renderHook(
         () => useDashboardData(mockRuntime, testAddress, defaultOptions),
         { wrapper }
       );
 
-      // 0xabc, 0xdef, 0x123 = 3 unique accounts
-      expect(result.current.uniqueAccountsCount).toBe(3);
+      // 0xabc, 0xdef, 0x123, 0xowner = 4 unique accounts
+      expect(result.current.uniqueAccountsCount).toBe(4);
     });
 
     it('returns isLoading as false when data is loaded', () => {
@@ -258,6 +258,29 @@ describe('useDashboardData', () => {
 
       expect(result.current.hasError).toBe(false);
       expect(result.current.errorMessage).toBeNull();
+    });
+
+    it('deduplicates the owner when already present in a role', () => {
+      vi.mocked(useContractDataModule.useContractOwnership).mockReturnValue({
+        ownership: { owner: '0xabc' },
+        isLoading: false,
+        isPending: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn().mockResolvedValue(undefined),
+        hasOwner: true,
+        canRetry: false,
+        errorMessage: null,
+        hasError: false,
+      });
+
+      const { result } = renderHook(
+        () => useDashboardData(mockRuntime, testAddress, defaultOptions),
+        { wrapper }
+      );
+
+      expect(result.current.rolesCount).toBe(3);
+      expect(result.current.uniqueAccountsCount).toBe(3);
     });
   });
 
@@ -636,6 +659,66 @@ describe('useDashboardData', () => {
       );
 
       expect(result.current.hasOwnable).toBe(true);
+    });
+  });
+
+  describe('ownable-only contracts', () => {
+    beforeEach(() => {
+      vi.mocked(useContractCapabilitiesModule.useContractCapabilities).mockReturnValue({
+        capabilities: {
+          hasOwnable: true,
+          hasTwoStepOwnable: false,
+          hasAccessControl: false,
+          hasTwoStepAdmin: false,
+          hasEnumerableRoles: false,
+          supportsHistory: false,
+          verifiedAgainstOZInterfaces: true,
+        },
+        isLoading: false,
+        isPending: false,
+        error: null,
+        refetch: vi.fn(),
+        isSupported: true,
+      });
+
+      vi.mocked(useContractRolesEnrichedModule.useContractRolesEnriched).mockReturnValue({
+        roles: [],
+        isLoading: false,
+        isPending: false,
+        isFetching: false,
+        isSettling: false,
+        error: null,
+        refetch: vi.fn(),
+        isEmpty: true,
+        canRetry: false,
+        errorMessage: null,
+        hasError: false,
+      });
+
+      vi.mocked(useContractDataModule.useContractOwnership).mockReturnValue({
+        ownership: { owner: '0xowner' },
+        isLoading: false,
+        isPending: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+        hasOwner: true,
+        canRetry: false,
+        errorMessage: null,
+        hasError: false,
+      });
+    });
+
+    it('counts the synthesized owner role and owner account', () => {
+      const { result } = renderHook(
+        () => useDashboardData(mockRuntime, testAddress, defaultOptions),
+        { wrapper }
+      );
+
+      expect(result.current.hasAccessControl).toBe(false);
+      expect(result.current.hasOwnable).toBe(true);
+      expect(result.current.rolesCount).toBe(1);
+      expect(result.current.uniqueAccountsCount).toBe(1);
     });
   });
 
