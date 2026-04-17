@@ -10,8 +10,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
 
-import type { AccessControlCapabilities } from '@openzeppelin/ui-types';
-import { appConfigService, isValidUrl, userNetworkServiceConfigService } from '@openzeppelin/ui-utils';
+import type { AccessControlCapabilities, AccessControlService } from '@openzeppelin/ui-types';
+import {
+  appConfigService,
+  isValidUrl,
+  userNetworkServiceConfigService,
+} from '@openzeppelin/ui-utils';
 
 import type { RoleManagerRuntime } from '@/core/runtimeAdapter';
 
@@ -71,6 +75,38 @@ export interface UseContractCapabilitiesReturn {
 }
 
 // Use centralized query keys
+
+const EMPTY_CAPABILITIES: AccessControlCapabilities = {
+  hasOwnable: false,
+  hasTwoStepOwnable: false,
+  hasAccessControl: false,
+  hasTwoStepAdmin: false,
+  hasEnumerableRoles: false,
+  supportsHistory: false,
+  verifiedAgainstOZInterfaces: false,
+  notes: [],
+};
+
+function withAccessManagerCapabilities(
+  capabilities: AccessControlCapabilities | ExtendedCapabilities
+): ExtendedCapabilities {
+  return {
+    ...capabilities,
+    hasAccessManager: true,
+    hasScheduledOperations: true,
+    hasTargetManagement: true,
+  };
+}
+
+function withCapabilityNote(
+  capabilities: AccessControlCapabilities | ExtendedCapabilities,
+  note: string
+): ExtendedCapabilities {
+  return {
+    ...capabilities,
+    notes: [...capabilities.notes, note],
+  };
+}
 
 /**
  * Detect if a contract is an AccessManager by probing for ADMIN_ROLE() returning uint64(0).
@@ -151,6 +187,69 @@ async function probeOwnable(
 }
 
 /**
+ * Shared capability detection used by both the add-contract flow and the
+ * contract pages. Falls back to on-chain probes for EVM contracts when ABI
+ * registration or schema-based detection is unavailable.
+ */
+export async function detectCapabilitiesWithProbes({
+  service,
+  runtime,
+  contractAddress,
+  storedCapabilities,
+}: {
+  service: AccessControlService;
+  runtime: RoleManagerRuntime | null;
+  contractAddress: string;
+  storedCapabilities?: AccessControlCapabilities | null;
+}): Promise<ExtendedCapabilities> {
+  const stored = storedCapabilities as ExtendedCapabilities | null | undefined;
+  let baseCaps: AccessControlCapabilities = EMPTY_CAPABILITIES;
+  let detectionError: unknown = null;
+
+  try {
+    baseCaps = await service.getCapabilities(contractAddress);
+  } catch (error) {
+    detectionError = error;
+    if (runtime?.networkConfig.ecosystem !== 'evm' && !stored?.hasAccessManager) {
+      throw error;
+    }
+  }
+
+  let capabilities = stored?.hasAccessManager
+    ? withAccessManagerCapabilities(baseCaps)
+    : (baseCaps as ExtendedCapabilities);
+
+  if (capabilities.hasAccessControl || capabilities.hasOwnable || capabilities.hasAccessManager) {
+    return capabilities;
+  }
+
+  if (runtime?.networkConfig.ecosystem === 'evm') {
+    const isAccessManager = await probeAccessManager(runtime, contractAddress);
+    if (isAccessManager) {
+      return withCapabilityNote(
+        withAccessManagerCapabilities(capabilities),
+        'AccessManager detected via on-chain ADMIN_ROLE() probe.'
+      );
+    }
+
+    const isOwnable = await probeOwnable(runtime, contractAddress);
+    if (isOwnable) {
+      capabilities = withCapabilityNote(
+        capabilities,
+        'Ownable detected via on-chain owner() probe.'
+      );
+      return { ...capabilities, hasOwnable: true };
+    }
+  }
+
+  if (detectionError) {
+    throw detectionError;
+  }
+
+  return capabilities;
+}
+
+/**
  * Hook that detects access control capabilities for a given contract.
  *
  * Uses the AccessControlService from the runtime to determine what
@@ -226,51 +325,12 @@ export function useContractCapabilities(
         throw new Error('Access control service not available');
       }
 
-      // Check stored capabilities first — avoids re-probing AccessManager
-      const stored = storedCapabilities as ExtendedCapabilities | null | undefined;
-      if (stored?.hasAccessManager) {
-        const baseCaps = await service.getCapabilities(contractAddress);
-        return {
-          ...baseCaps,
-          hasAccessManager: true,
-          hasScheduledOperations: true,
-          hasTargetManagement: true,
-        };
-      }
-
-      // Standard capability detection
-      const baseCaps = await service.getCapabilities(contractAddress);
-
-      // If standard detection found AC or Ownable, return as-is
-      if (baseCaps.hasAccessControl || baseCaps.hasOwnable) {
-        return baseCaps as ExtendedCapabilities;
-      }
-
-      // Fallback: probe via RPC (covers proxy contracts whose implementation
-      // ABI couldn't be loaded from Etherscan/Sourcify)
-      if (runtime) {
-        const isAccessManager = await probeAccessManager(runtime, contractAddress);
-        if (isAccessManager) {
-          return {
-            ...baseCaps,
-            hasAccessManager: true,
-            hasScheduledOperations: true,
-            hasTargetManagement: true,
-          } as ExtendedCapabilities;
-        }
-
-        // Probe Ownable via owner() call — catches proxy contracts where
-        // the adapter couldn't resolve the implementation ABI
-        if (!baseCaps.hasOwnable) {
-          const isOwnable = await probeOwnable(runtime, contractAddress);
-          if (isOwnable) {
-            return { ...baseCaps, hasOwnable: true } as ExtendedCapabilities;
-          }
-        }
-      }
-
-      // Nothing detected
-      return baseCaps as ExtendedCapabilities;
+      return detectCapabilitiesWithProbes({
+        service,
+        runtime,
+        contractAddress,
+        storedCapabilities,
+      });
     },
     // Only run query when we have a service, valid address, and contract is registered
     enabled: isReady && !!contractAddress && isContractRegistered,

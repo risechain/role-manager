@@ -18,7 +18,39 @@ import type {
 
 import type { RoleManagerRuntime } from '@/core/runtimeAdapter';
 
-import { useContractCapabilities } from '../useContractCapabilities';
+import { detectCapabilitiesWithProbes, useContractCapabilities } from '../useContractCapabilities';
+
+const { mockReadContract, mockGetRpcEndpointOverride, mockUserNetworkServiceGet } = vi.hoisted(
+  () => ({
+    mockReadContract: vi.fn(),
+    mockGetRpcEndpointOverride: vi.fn(),
+    mockUserNetworkServiceGet: vi.fn(),
+  })
+);
+
+vi.mock('viem', () => ({
+  createPublicClient: vi.fn(() => ({
+    readContract: mockReadContract,
+  })),
+  http: vi.fn((url: string) => ({ url })),
+}));
+
+vi.mock('@openzeppelin/ui-utils', () => ({
+  appConfigService: {
+    getRpcEndpointOverride: mockGetRpcEndpointOverride,
+  },
+  userNetworkServiceConfigService: {
+    get: mockUserNetworkServiceGet,
+  },
+  isValidUrl: (value: string) => {
+    try {
+      new URL(value);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+}));
 
 // Test fixtures
 const mockNetworkConfig: NetworkConfig = {
@@ -74,6 +106,17 @@ const mockCapabilitiesNone: AccessControlCapabilities = {
   notes: ['Contract does not implement standard access control interfaces'],
 };
 
+const mockEvmNetworkConfig: NetworkConfig = {
+  id: 'rise-mainnet',
+  name: 'RISE',
+  ecosystem: 'evm',
+  network: 'rise',
+  type: 'mainnet',
+  isTestnet: false,
+  chainId: 4153,
+  rpcUrl: 'https://rpc.risechain.com',
+} as NetworkConfig;
+
 // Create mock AccessControlService factory
 const createMockAccessControlService = (
   overrides?: Partial<AccessControlService>
@@ -92,7 +135,8 @@ const createMockAccessControlService = (
 
 // Create mock runtime factory
 const createMockRuntime = (
-  accessControlService?: AccessControlService | null
+  accessControlService?: AccessControlService | null,
+  networkConfig: NetworkConfig = mockNetworkConfig
 ): RoleManagerRuntime => {
   const mockService =
     accessControlService === null
@@ -100,7 +144,7 @@ const createMockRuntime = (
       : (accessControlService ?? createMockAccessControlService());
 
   return {
-    networkConfig: mockNetworkConfig,
+    networkConfig,
     addressing: { isValidAddress: vi.fn().mockReturnValue(true) },
     accessControl: mockService,
   } as unknown as RoleManagerRuntime;
@@ -125,6 +169,11 @@ const createWrapper = () => {
 describe('useContractCapabilities', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadContract.mockReset();
+    mockGetRpcEndpointOverride.mockReset();
+    mockUserNetworkServiceGet.mockReset();
+    mockGetRpcEndpointOverride.mockReturnValue(undefined);
+    mockUserNetworkServiceGet.mockReturnValue(undefined);
   });
 
   afterEach(() => {
@@ -242,6 +291,40 @@ describe('useContractCapabilities', () => {
       expect(result.current.capabilities?.hasOwnable).toBe(false);
       expect(result.current.capabilities?.hasAccessControl).toBe(false);
     });
+
+    it('should fall back to owner() probe when EVM capability detection throws', async () => {
+      const mockService = createMockAccessControlService({
+        getCapabilities: vi
+          .fn()
+          .mockRejectedValue(new Error('Contract not registered. Call registerContract() first.')),
+      });
+      const mockAdapter = createMockRuntime(mockService, mockEvmNetworkConfig);
+
+      mockReadContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
+        if (functionName === 'ADMIN_ROLE') {
+          throw new Error('Not an AccessManager');
+        }
+        if (functionName === 'owner') {
+          return '0x000000000000000000000000000000000000dEaD';
+        }
+        throw new Error(`Unexpected function: ${functionName}`);
+      });
+
+      const { result } = renderHook(
+        () => useContractCapabilities(mockAdapter, '0x00000000000000000000000000000000000000AA'),
+        { wrapper: createWrapper() }
+      );
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.capabilities?.hasOwnable).toBe(true);
+      expect(result.current.capabilities?.notes).toContain(
+        'Ownable detected via on-chain owner() probe.'
+      );
+    });
   });
 
   describe('isSupported helper', () => {
@@ -345,6 +428,36 @@ describe('useContractCapabilities', () => {
       });
 
       expect(result.current.error).toBeTruthy();
+    });
+  });
+
+  describe('shared EVM detection helper', () => {
+    it('should return Ownable when the adapter fails but owner() probe succeeds', async () => {
+      const mockService = createMockAccessControlService({
+        getCapabilities: vi
+          .fn()
+          .mockRejectedValue(new Error('Contract not registered. Call registerContract() first.')),
+      });
+      const mockAdapter = createMockRuntime(mockService, mockEvmNetworkConfig);
+
+      mockReadContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
+        if (functionName === 'ADMIN_ROLE') {
+          throw new Error('Not an AccessManager');
+        }
+        if (functionName === 'owner') {
+          return '0x000000000000000000000000000000000000dEaD';
+        }
+        throw new Error(`Unexpected function: ${functionName}`);
+      });
+
+      const capabilities = await detectCapabilitiesWithProbes({
+        service: mockService,
+        runtime: mockAdapter,
+        contractAddress: '0x00000000000000000000000000000000000000BB',
+      });
+
+      expect(capabilities.hasOwnable).toBe(true);
+      expect(capabilities.notes).toContain('Ownable detected via on-chain owner() probe.');
     });
   });
 

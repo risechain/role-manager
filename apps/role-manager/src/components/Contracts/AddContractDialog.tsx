@@ -13,15 +13,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@openzeppelin/ui-components';
 import type { AccessControlService, ContractSchema, NetworkConfig } from '@openzeppelin/ui-types';
-import { appConfigService, logger, userNetworkServiceConfigService } from '@openzeppelin/ui-utils';
+import { logger } from '@openzeppelin/ui-utils';
 
 import { ACCESS_MANAGER_ABI } from '@/core/ecosystems/evm/accessManagerAbi';
-import { resilientTransport } from '@/core/ecosystems/evm/resilientTransport';
 import { useAliasStorage } from '@/core/storage/aliasStorage';
 import { recentContractsStorage } from '@/core/storage/RecentContractsStorage';
 import { useAccessControlService, useContractSchemaLoader, useNetworkAdapter } from '@/hooks';
 import { queryKeys } from '@/hooks/queryKeys';
-import { isContractSupported, type ExtendedCapabilities } from '@/hooks/useContractCapabilities';
+import {
+  detectCapabilitiesWithProbes,
+  isContractSupported,
+  type ExtendedCapabilities,
+} from '@/hooks/useContractCapabilities';
 import type { AddContractDialogProps, AddContractFormData } from '@/types/contracts';
 import type { SchemaLoadResult } from '@/types/schema';
 
@@ -256,65 +259,11 @@ export function AddContractDialog({
           serviceWithRegister.registerContract(pendingFormData.address, result.schema);
         }
 
-        const baseCaps = await accessControlService.getCapabilities(pendingFormData.address);
-        capabilities = baseCaps as ExtendedCapabilities;
-
-        // If standard detection didn't find AC/Ownable, probe for AccessManager via RPC.
-        // Always verify on-chain — schema-based detection alone is unreliable because
-        // the manual ABI fallback loads our AccessManager ABI for all unverified contracts.
-        if (
-          !baseCaps.hasAccessControl &&
-          !baseCaps.hasOwnable &&
-          runtime?.networkConfig.ecosystem === 'evm'
-        ) {
-          let detected = false;
-          const networkConfig = runtime.networkConfig as {
-            rpcUrl: string;
-            chainId: number;
-            id: string;
-          };
-
-          // Resolve RPC URL using the same strategy as the adapter
-          let rpcUrl = networkConfig.rpcUrl;
-          const userRpc = userNetworkServiceConfigService.get(networkConfig.id, 'rpc') as
-            | { rpcUrl?: string }
-            | undefined;
-          if (userRpc?.rpcUrl) rpcUrl = userRpc.rpcUrl;
-          else {
-            const override = appConfigService.getRpcEndpointOverride(networkConfig.id);
-            if (typeof override === 'string' && override) rpcUrl = override;
-          }
-
-          try {
-            // Use resilient transport with auto-fallback to Chainlist RPCs
-            const { createPublicClient } = await import('viem');
-            const client = createPublicClient({
-              transport: resilientTransport({
-                chainId: networkConfig.chainId,
-                rpcs: [rpcUrl],
-                chainlistEnabled: true,
-              }),
-            });
-
-            const adminRole = await client.readContract({
-              address: pendingFormData.address as `0x${string}`,
-              abi: ACCESS_MANAGER_ABI,
-              functionName: 'ADMIN_ROLE',
-            });
-            detected = adminRole === 0n;
-          } catch {
-            // Probe failed after all retries — not an AccessManager
-          }
-
-          if (detected) {
-            capabilities = {
-              ...baseCaps,
-              hasAccessManager: true,
-              hasScheduledOperations: true,
-              hasTargetManagement: true,
-            };
-          }
-        }
+        capabilities = await detectCapabilitiesWithProbes({
+          service: accessControlService,
+          runtime,
+          contractAddress: pendingFormData.address,
+        });
 
         setDetectedCapabilities(capabilities);
 
@@ -362,7 +311,7 @@ export function AddContractDialog({
     saveContractWithSchema,
     accessControlService,
     pendingFormData,
-    runtime?.networkConfig,
+    runtime,
     queryClient,
     schemaLoader,
   ]);
