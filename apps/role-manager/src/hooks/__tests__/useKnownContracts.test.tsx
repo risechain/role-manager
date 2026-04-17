@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -77,7 +77,10 @@ describe('useKnownContracts', () => {
         name: 'transfer',
         signature: 'transfer(address,uint256)',
         isView: false,
-        params: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }],
+        params: [
+          { name: 'to', type: 'address' },
+          { name: 'amount', type: 'uint256' },
+        ],
       },
     ]);
 
@@ -87,5 +90,51 @@ describe('useKnownContracts', () => {
 
     expect(result.current.contracts[0]?.functions).toHaveLength(1);
     expect(result.current.contracts[0]?.functions[0]?.name).toBe('transfer');
+  });
+
+  it('preserves tuple component metadata from loaded contract functions', async () => {
+    const address = '0x1234567890abcdef1234567890abcdef12345678';
+    const loadContract = vi.fn().mockResolvedValue({
+      functions: [
+        {
+          id: 'setConfig(tuple)',
+          name: 'setConfig',
+          inputs: [
+            {
+              name: 'config',
+              type: 'tuple',
+              components: [
+                { name: 'capacity', type: 'uint128' },
+                { name: 'refillRate', type: 'uint128' },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    mockUseSelectedContract.mockReturnValue({
+      runtime: {
+        contractLoading: { loadContract },
+        schema: {
+          isViewFunction: vi.fn().mockReturnValue(false),
+        },
+      },
+    });
+
+    const { result } = renderHook(() => useKnownContracts(), { wrapper: createWrapper() });
+
+    act(() => {
+      result.current.loadFunctionsFor(address);
+    });
+
+    await waitFor(() => {
+      expect(result.current.contracts[0]?.functions).toHaveLength(1);
+    });
+
+    expect(result.current.contracts[0]?.functions[0]?.params[0]?.components).toEqual([
+      { name: 'capacity', type: 'uint128', components: undefined },
+      { name: 'refillRate', type: 'uint128', components: undefined },
+    ]);
   });
 });

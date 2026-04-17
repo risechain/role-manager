@@ -14,7 +14,7 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 
-import type { ContractFunction } from '@openzeppelin/ui-types';
+import type { ContractFunction, FunctionParameter } from '@openzeppelin/ui-types';
 import { logger } from '@openzeppelin/ui-utils';
 
 import { useSharedAccessManagerSync } from '../context/AccessManagerSyncContext';
@@ -34,8 +34,8 @@ export interface KnownFunction {
   signature: string;
   /** Whether it's a view/pure function */
   isView: boolean;
-  /** Parameter names and types (e.g., [{ name: "to", type: "address" }]) */
-  params: Array<{ name: string; type: string }>;
+  /** Full parameter metadata, including tuple components and helper descriptions. */
+  params: FunctionParameter[];
 }
 
 export interface KnownContract {
@@ -81,6 +81,11 @@ async function loadContractFunctions(
 
     const { keccak256, toHex } = await import('viem');
 
+    const cloneFunctionParameter = (param: FunctionParameter): FunctionParameter => ({
+      ...param,
+      components: param.components?.map((component) => cloneFunctionParameter(component)),
+    });
+
     const fns: KnownFunction[] = schema.functions.map((fn: ContractFunction) => {
       const paramTypes = fn.inputs?.map((p) => p.type).join(',') ?? '';
       const signature = `${fn.name}(${paramTypes})`;
@@ -102,10 +107,7 @@ async function loadContractFunctions(
         name: fn.name,
         signature,
         isView: runtime.schema.isViewFunction(fn),
-        params: (fn.inputs ?? []).map((p: { name: string; type: string }) => ({
-          name: p.name,
-          type: p.type,
-        })),
+        params: (fn.inputs ?? []).map((param) => cloneFunctionParameter(param)),
       };
     });
 

@@ -44,6 +44,14 @@ import {
 } from '../utils/access-manager-form';
 import { formatEffectAtDate } from '../utils/delay-format';
 import { createGetAccountUrl } from '../utils/explorer-urls';
+import {
+  getFunctionParameterHelperText,
+  getFunctionParameterLabel,
+  getFunctionParameterPlaceholder,
+  isComplexFunctionParameter,
+  parseFunctionParameterValue,
+  toAbiFunctionParameter,
+} from '../utils/function-args';
 
 function formatScheduleDate(timestamp: number): string {
   if (timestamp === 0) return 'Immediate';
@@ -58,6 +66,62 @@ function getOperationStatus(op: { isReady: boolean; isExpired: boolean; schedule
   if (op.isReady) return { label: 'Ready', variant: 'success' };
   if (op.schedule > 0) return { label: 'Scheduled', variant: 'warning' };
   return { label: 'Pending', variant: 'info' };
+}
+
+function FunctionArgumentsForm({
+  signature,
+  params,
+  values,
+  onChange,
+}: {
+  signature: string;
+  params: NonNullable<
+    ReturnType<typeof useKnownContracts>['contracts'][number]['functions'][number]['params']
+  >;
+  values: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 border rounded-md p-3 bg-muted/30">
+      <span className="text-xs font-medium text-muted-foreground">
+        Arguments for <code className="font-mono">{signature}</code>
+      </span>
+      {params.map((param, index) => {
+        const fieldKey = `arg${index}`;
+        const label = getFunctionParameterLabel(param, index);
+        const helperText = getFunctionParameterHelperText(param);
+        const placeholder = getFunctionParameterPlaceholder(param);
+        const isComplex = isComplexFunctionParameter(param);
+        const value = values[fieldKey] ?? '';
+
+        return (
+          <div key={`${param.name || 'arg'}-${index}`} className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">
+              {label} <span className="opacity-60">({param.type})</span>
+            </label>
+            {isComplex ? (
+              <textarea
+                value={value}
+                onChange={(e) => onChange(fieldKey, e.target.value)}
+                placeholder={placeholder}
+                rows={param.type.startsWith('tuple') ? 3 : 2}
+                className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono resize-y"
+              />
+            ) : (
+              <input
+                type="text"
+                value={value}
+                onChange={(e) => onChange(fieldKey, e.target.value)}
+                placeholder={placeholder}
+                className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+              />
+            )}
+            {helperText && <span className="text-xs text-muted-foreground">{helperText}</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export function Operations() {
@@ -126,11 +190,13 @@ export function Operations() {
         const abiItem = {
           type: 'function' as const,
           name: formSelectedFunction.name,
-          inputs: params.map((p) => ({ name: p.name, type: p.type })),
+          inputs: params.map((param) => toAbiFunctionParameter(param)),
           outputs: [],
           stateMutability: 'nonpayable' as const,
         };
-        const args = params.map((_, i) => formFunctionArgs[`arg${i}`] ?? '');
+        const args = params.map((param, index) =>
+          parseFunctionParameterValue(param, formFunctionArgs[`arg${index}`] ?? '')
+        );
         const encoded = encodeFunctionData({
           abi: [abiItem],
           functionName: formSelectedFunction.name,
@@ -139,6 +205,7 @@ export function Operations() {
         if (encoded) setFormData(encoded);
       } catch {
         // encoding failed — user can still paste raw calldata
+        setFormData('');
       }
     };
     void encodeFn();
@@ -457,31 +524,17 @@ export function Operations() {
                     </Select>
                   </div>
                   {formSelectedFunction && (
-                    <div className="flex flex-col gap-2 border rounded-md p-3 bg-muted/30">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        Arguments for{' '}
-                        <code className="font-mono">{formSelectedFunction.signature}</code>
-                      </span>
-                      {formSelectedFunction.params.map((param, i) => (
-                          <div key={i} className="flex flex-col gap-0.5">
-                            <label className="text-xs text-muted-foreground">
-                              {param.name || `arg${i}`} <span className="opacity-60">({param.type})</span>
-                            </label>
-                            <input
-                              type="text"
-                              value={formFunctionArgs[`arg${i}`] ?? ''}
-                              onChange={(e) =>
-                                setFormFunctionArgs((prev) => ({
-                                  ...prev,
-                                  [`arg${i}`]: e.target.value,
-                                }))
-                              }
-                              placeholder={param.type}
-                              className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
-                            />
-                          </div>
-                        ))}
-                    </div>
+                    <FunctionArgumentsForm
+                      signature={formSelectedFunction.signature}
+                      params={formSelectedFunction.params}
+                      values={formFunctionArgs}
+                      onChange={(key, value) =>
+                        setFormFunctionArgs((prev) => ({
+                          ...prev,
+                          [key]: value,
+                        }))
+                      }
+                    />
                   )}
                   {formData && (
                     <div className="flex flex-col gap-0.5">
@@ -635,31 +688,17 @@ export function Operations() {
                   </div>
                   {/* Function args */}
                   {formSelectedFunction && (
-                    <div className="flex flex-col gap-2 border rounded-md p-3 bg-muted/30">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        Arguments for{' '}
-                        <code className="font-mono">{formSelectedFunction.signature}</code>
-                      </span>
-                      {formSelectedFunction.params.map((param, i) => (
-                          <div key={i} className="flex flex-col gap-0.5">
-                            <label className="text-xs text-muted-foreground">
-                              {param.name || `arg${i}`} <span className="opacity-60">({param.type})</span>
-                            </label>
-                            <input
-                              type="text"
-                              value={formFunctionArgs[`arg${i}`] ?? ''}
-                              onChange={(e) =>
-                                setFormFunctionArgs((prev) => ({
-                                  ...prev,
-                                  [`arg${i}`]: e.target.value,
-                                }))
-                              }
-                              placeholder={param.type}
-                              className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
-                            />
-                          </div>
-                        ))}
-                    </div>
+                    <FunctionArgumentsForm
+                      signature={formSelectedFunction.signature}
+                      params={formSelectedFunction.params}
+                      values={formFunctionArgs}
+                      onChange={(key, value) =>
+                        setFormFunctionArgs((prev) => ({
+                          ...prev,
+                          [key]: value,
+                        }))
+                      }
+                    />
                   )}
                   {formData && (
                     <div className="flex flex-col gap-0.5">
