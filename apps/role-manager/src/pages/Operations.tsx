@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from '@openzeppelin/ui-components';
 import { useDerivedAccountStatus } from '@openzeppelin/ui-react';
+import type { FunctionParameter } from '@openzeppelin/ui-types';
 import { cn, formatSecondsToReadable, truncateMiddle } from '@openzeppelin/ui-utils';
 
 import { AccessManagerPageGuard } from '../components/Shared/AccessManagerPageGuard';
@@ -48,8 +49,12 @@ import {
   getFunctionParameterHelperText,
   getFunctionParameterLabel,
   getFunctionParameterPlaceholder,
+  getNestedFunctionParameterKey,
+  hasFunctionParameterInput,
+  isBooleanFunctionParameter,
   isComplexFunctionParameter,
-  parseFunctionParameterValue,
+  isStructuredTupleParameter,
+  parseFunctionParameterFormValue,
   toAbiFunctionParameter,
 } from '../utils/function-args';
 
@@ -68,6 +73,98 @@ function getOperationStatus(op: { isReady: boolean; isExpired: boolean; schedule
   return { label: 'Pending', variant: 'info' };
 }
 
+type FunctionArgumentValues = Record<string, string>;
+
+function FunctionParameterField({
+  param,
+  index,
+  fieldKey,
+  values,
+  onChange,
+  depth = 0,
+}: {
+  param: FunctionParameter;
+  index: number;
+  fieldKey: string;
+  values: FunctionArgumentValues;
+  onChange: (key: string, value: string) => void;
+  depth?: number;
+}) {
+  const label = getFunctionParameterLabel(param, index);
+  const helperText = getFunctionParameterHelperText(param);
+  const placeholder = getFunctionParameterPlaceholder(param);
+  const value = values[fieldKey] ?? '';
+
+  if (isStructuredTupleParameter(param)) {
+    return (
+      <div
+        className={cn(
+          'flex flex-col gap-2 rounded-md border border-border bg-background/80 p-3',
+          depth > 0 && 'ml-3'
+        )}
+      >
+        <div className="flex flex-col gap-0.5">
+          <label className="text-xs text-muted-foreground">
+            {label} <span className="opacity-60">({param.type})</span>
+          </label>
+          <span className="text-xs text-muted-foreground">
+            Fill in each {label.toLowerCase()} field below.
+          </span>
+        </div>
+        <div className="flex flex-col gap-2">
+          {param.components?.map((component, componentIndex) => (
+            <FunctionParameterField
+              key={getNestedFunctionParameterKey(fieldKey, componentIndex)}
+              param={component}
+              index={componentIndex}
+              fieldKey={getNestedFunctionParameterKey(fieldKey, componentIndex)}
+              values={values}
+              onChange={onChange}
+              depth={depth + 1}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs text-muted-foreground">
+        {label} <span className="opacity-60">({param.type})</span>
+      </label>
+      {isBooleanFunctionParameter(param) ? (
+        <Select value={value} onValueChange={(nextValue) => onChange(fieldKey, nextValue)}>
+          <SelectTrigger className="h-9 text-sm">
+            <SelectValue placeholder="Select true or false" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="true">True</SelectItem>
+            <SelectItem value="false">False</SelectItem>
+          </SelectContent>
+        </Select>
+      ) : isComplexFunctionParameter(param) ? (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(fieldKey, e.target.value)}
+          placeholder={placeholder}
+          rows={2}
+          className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono resize-y"
+        />
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(fieldKey, e.target.value)}
+          placeholder={placeholder}
+          className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+        />
+      )}
+      {helperText && <span className="text-xs text-muted-foreground">{helperText}</span>}
+    </div>
+  );
+}
+
 function FunctionArgumentsForm({
   signature,
   params,
@@ -75,10 +172,8 @@ function FunctionArgumentsForm({
   onChange,
 }: {
   signature: string;
-  params: NonNullable<
-    ReturnType<typeof useKnownContracts>['contracts'][number]['functions'][number]['params']
-  >;
-  values: Record<string, string>;
+  params: FunctionParameter[];
+  values: FunctionArgumentValues;
   onChange: (key: string, value: string) => void;
 }) {
   return (
@@ -87,37 +182,15 @@ function FunctionArgumentsForm({
         Arguments for <code className="font-mono">{signature}</code>
       </span>
       {params.map((param, index) => {
-        const fieldKey = `arg${index}`;
-        const label = getFunctionParameterLabel(param, index);
-        const helperText = getFunctionParameterHelperText(param);
-        const placeholder = getFunctionParameterPlaceholder(param);
-        const isComplex = isComplexFunctionParameter(param);
-        const value = values[fieldKey] ?? '';
-
         return (
-          <div key={`${param.name || 'arg'}-${index}`} className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">
-              {label} <span className="opacity-60">({param.type})</span>
-            </label>
-            {isComplex ? (
-              <textarea
-                value={value}
-                onChange={(e) => onChange(fieldKey, e.target.value)}
-                placeholder={placeholder}
-                rows={param.type.startsWith('tuple') ? 3 : 2}
-                className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono resize-y"
-              />
-            ) : (
-              <input
-                type="text"
-                value={value}
-                onChange={(e) => onChange(fieldKey, e.target.value)}
-                placeholder={placeholder}
-                className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
-              />
-            )}
-            {helperText && <span className="text-xs text-muted-foreground">{helperText}</span>}
-          </div>
+          <FunctionParameterField
+            key={`${param.name || 'arg'}-${index}`}
+            param={param}
+            index={index}
+            fieldKey={`arg${index}`}
+            values={values}
+            onChange={onChange}
+          />
         );
       })}
     </div>
@@ -151,6 +224,7 @@ export function Operations() {
   const [formFunctionId, setFormFunctionId] = useState('');
   const [formFunctionArgs, setFormFunctionArgs] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState('');
+  const [formEncodingError, setFormEncodingError] = useState<string | null>(null);
   const [formWhen, setFormWhen] = useState('');
   const [formUseRawCalldata, setFormUseRawCalldata] = useState(false);
 
@@ -168,6 +242,13 @@ export function Operations() {
       formWriteFunctions.find((f) => f.selector === formFunctionId || f.name === formFunctionId),
     [formWriteFunctions, formFunctionId]
   );
+  const formHasAllInputs = useMemo(() => {
+    if (!formSelectedFunction) return false;
+
+    return formSelectedFunction.params.every((param, index) =>
+      hasFunctionParameterInput(param, formFunctionArgs, `arg${index}`)
+    );
+  }, [formSelectedFunction, formFunctionArgs]);
 
   const handleFormTargetChange = useCallback(
     (addr: string) => {
@@ -175,6 +256,7 @@ export function Operations() {
       setFormFunctionId('');
       setFormFunctionArgs({});
       setFormData('');
+      setFormEncodingError(null);
       if (addr && addr.startsWith('0x')) loadFunctionsFor(addr);
     },
     [loadFunctionsFor]
@@ -182,7 +264,17 @@ export function Operations() {
 
   // Encode calldata when function + args change
   useEffect(() => {
-    if (formUseRawCalldata || !formTarget || !formSelectedFunction) return;
+    if (formUseRawCalldata || !formTarget || !formSelectedFunction) {
+      setFormEncodingError(null);
+      return;
+    }
+
+    if (!formHasAllInputs) {
+      setFormData('');
+      setFormEncodingError(null);
+      return;
+    }
+
     const encodeFn = async () => {
       try {
         const { encodeFunctionData } = await import('viem');
@@ -195,21 +287,31 @@ export function Operations() {
           stateMutability: 'nonpayable' as const,
         };
         const args = params.map((param, index) =>
-          parseFunctionParameterValue(param, formFunctionArgs[`arg${index}`] ?? '')
+          parseFunctionParameterFormValue(
+            param,
+            formFunctionArgs,
+            `arg${index}`,
+            getFunctionParameterLabel(param, index)
+          )
         );
         const encoded = encodeFunctionData({
           abi: [abiItem],
           functionName: formSelectedFunction.name,
           args: args as never,
         });
-        if (encoded) setFormData(encoded);
-      } catch {
-        // encoding failed — user can still paste raw calldata
+        if (encoded) {
+          setFormData(encoded);
+          setFormEncodingError(null);
+        }
+      } catch (error) {
         setFormData('');
+        setFormEncodingError(
+          error instanceof Error ? error.message : 'Enter valid arguments to generate calldata'
+        );
       }
     };
     void encodeFn();
-  }, [runtime, formTarget, formSelectedFunction, formFunctionArgs, formUseRawCalldata]);
+  }, [formTarget, formSelectedFunction, formFunctionArgs, formUseRawCalldata, formHasAllInputs]);
 
   const sortedOperations = useMemo(() => {
     return [...operations].sort((a, b) => {
@@ -455,6 +557,7 @@ export function Operations() {
                         setFormFunctionId('');
                         setFormFunctionArgs({});
                         setFormData('');
+                        setFormEncodingError(null);
                       } else {
                         handleFormTargetChange(v);
                       }
@@ -490,6 +593,7 @@ export function Operations() {
                           setFormFunctionId('');
                           setFormFunctionArgs({});
                           setFormData('');
+                          setFormEncodingError(null);
                         }}
                         className="text-xs text-muted-foreground underline self-start"
                       >
@@ -509,6 +613,8 @@ export function Operations() {
                       onValueChange={(v) => {
                         setFormFunctionId(v);
                         setFormFunctionArgs({});
+                        setFormData('');
+                        setFormEncodingError(null);
                       }}
                     >
                       <SelectTrigger className="h-9 text-sm">
@@ -536,6 +642,14 @@ export function Operations() {
                       }
                     />
                   )}
+                  {formSelectedFunction && !formData && !formEncodingError && (
+                    <span className="text-xs text-muted-foreground">
+                      Complete all arguments to generate calldata and enable Execute.
+                    </span>
+                  )}
+                  {formEncodingError && (
+                    <span className="text-xs text-red-600">{formEncodingError}</span>
+                  )}
                   {formData && (
                     <div className="flex flex-col gap-0.5">
                       <span className="text-xs text-muted-foreground">Encoded calldata</span>
@@ -547,7 +661,10 @@ export function Operations() {
                   )}
                   <button
                     type="button"
-                    onClick={() => setFormUseRawCalldata(true)}
+                    onClick={() => {
+                      setFormUseRawCalldata(true);
+                      setFormEncodingError(null);
+                    }}
                     className="text-xs text-muted-foreground underline self-start"
                   >
                     Paste raw calldata instead
@@ -561,14 +678,20 @@ export function Operations() {
                   <input
                     type="text"
                     value={formData}
-                    onChange={(e) => setFormData(e.target.value)}
+                    onChange={(e) => {
+                      setFormData(e.target.value);
+                      setFormEncodingError(null);
+                    }}
                     placeholder="0x..."
                     className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                   />
                   {formWriteFunctions.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => setFormUseRawCalldata(false)}
+                      onClick={() => {
+                        setFormUseRawCalldata(false);
+                        setFormEncodingError(null);
+                      }}
                       className="text-xs text-muted-foreground underline self-start"
                     >
                       Use function picker instead
@@ -618,6 +741,7 @@ export function Operations() {
                         setFormFunctionId('');
                         setFormFunctionArgs({});
                         setFormData('');
+                        setFormEncodingError(null);
                       } else {
                         handleFormTargetChange(v);
                       }
@@ -653,6 +777,7 @@ export function Operations() {
                           setFormFunctionId('');
                           setFormFunctionArgs({});
                           setFormData('');
+                          setFormEncodingError(null);
                         }}
                         className="text-xs text-muted-foreground underline self-start"
                       >
@@ -672,6 +797,8 @@ export function Operations() {
                       onValueChange={(v) => {
                         setFormFunctionId(v);
                         setFormFunctionArgs({});
+                        setFormData('');
+                        setFormEncodingError(null);
                       }}
                     >
                       <SelectTrigger className="h-9 text-sm">
@@ -700,6 +827,14 @@ export function Operations() {
                       }
                     />
                   )}
+                  {formSelectedFunction && !formData && !formEncodingError && (
+                    <span className="text-xs text-muted-foreground">
+                      Complete all arguments to generate calldata and enable Schedule.
+                    </span>
+                  )}
+                  {formEncodingError && (
+                    <span className="text-xs text-red-600">{formEncodingError}</span>
+                  )}
                   {formData && (
                     <div className="flex flex-col gap-0.5">
                       <span className="text-xs text-muted-foreground">Encoded calldata</span>
@@ -711,7 +846,10 @@ export function Operations() {
                   )}
                   <button
                     type="button"
-                    onClick={() => setFormUseRawCalldata(true)}
+                    onClick={() => {
+                      setFormUseRawCalldata(true);
+                      setFormEncodingError(null);
+                    }}
                     className="text-xs text-muted-foreground underline self-start"
                   >
                     Paste raw calldata instead
@@ -725,14 +863,20 @@ export function Operations() {
                   <input
                     type="text"
                     value={formData}
-                    onChange={(e) => setFormData(e.target.value)}
+                    onChange={(e) => {
+                      setFormData(e.target.value);
+                      setFormEncodingError(null);
+                    }}
                     placeholder="0x..."
                     className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                   />
                   {formWriteFunctions.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => setFormUseRawCalldata(false)}
+                      onClick={() => {
+                        setFormUseRawCalldata(false);
+                        setFormEncodingError(null);
+                      }}
                       className="text-xs text-muted-foreground underline self-start"
                     >
                       Use function picker instead

@@ -13,6 +13,10 @@ function hasTupleComponents(param: FunctionParameter): boolean {
   return param.type.startsWith('tuple') && (param.components?.length ?? 0) > 0;
 }
 
+function isBlankValue(value: string | undefined): boolean {
+  return !value?.trim();
+}
+
 function stripArraySuffix(type: string): string {
   return type.replace(ARRAY_SUFFIX_RE, '');
 }
@@ -148,8 +152,16 @@ export function getFunctionParameterLabel(param: FunctionParameter, index: numbe
   return param.displayName || param.name || `arg${index}`;
 }
 
+export function isStructuredTupleParameter(param: FunctionParameter): boolean {
+  return hasTupleComponents(param) && !isArrayType(param.type);
+}
+
 export function isComplexFunctionParameter(param: FunctionParameter): boolean {
   return hasTupleComponents(param) || isArrayType(param.type);
+}
+
+export function isBooleanFunctionParameter(param: FunctionParameter): boolean {
+  return BOOL_TYPE_RE.test(param.type) && !isComplexFunctionParameter(param);
 }
 
 export function getFunctionParameterPlaceholder(param: FunctionParameter): string {
@@ -194,6 +206,58 @@ export function parseFunctionParameterValue(param: FunctionParameter, rawValue: 
   }
 
   return normalizeScalarValue(param.type, trimmedValue);
+}
+
+export function getNestedFunctionParameterKey(parentKey: string, index: number): string {
+  return `${parentKey}.${index}`;
+}
+
+export function hasFunctionParameterInput(
+  param: FunctionParameter,
+  values: Record<string, string>,
+  fieldKey: string
+): boolean {
+  if (isStructuredTupleParameter(param)) {
+    return (
+      param.components?.every((component, index) =>
+        hasFunctionParameterInput(component, values, getNestedFunctionParameterKey(fieldKey, index))
+      ) ?? false
+    );
+  }
+
+  return !isBlankValue(values[fieldKey]);
+}
+
+export function parseFunctionParameterFormValue(
+  param: FunctionParameter,
+  values: Record<string, string>,
+  fieldKey: string,
+  fieldLabel: string
+): unknown {
+  if (isStructuredTupleParameter(param)) {
+    return (
+      param.components?.map((component, index) =>
+        parseFunctionParameterFormValue(
+          component,
+          values,
+          getNestedFunctionParameterKey(fieldKey, index),
+          getFunctionParameterLabel(component, index)
+        )
+      ) ?? []
+    );
+  }
+
+  const rawValue = values[fieldKey] ?? '';
+  if (isBlankValue(rawValue)) {
+    throw new Error(`Enter ${fieldLabel}`);
+  }
+
+  try {
+    return parseFunctionParameterValue(param, rawValue);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Enter a valid value';
+    throw new Error(`${fieldLabel}: ${message}`);
+  }
 }
 
 export function toAbiFunctionParameter(param: FunctionParameter): {
