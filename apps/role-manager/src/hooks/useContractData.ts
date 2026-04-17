@@ -13,6 +13,12 @@ import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { AdminInfo, OwnershipInfo, RoleAssignment } from '@openzeppelin/ui-types';
+import {
+  appConfigService,
+  isValidUrl,
+  logger,
+  userNetworkServiceConfigService,
+} from '@openzeppelin/ui-utils';
 
 import type { RoleManagerRuntime } from '@/core/runtimeAdapter';
 
@@ -30,6 +36,98 @@ export {
   computeAdminRefetchInterval,
 } from './mutationPolling';
 export type { MutationPreviewData } from './mutationPolling';
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+function resolveOwnershipProbeRpcUrl(networkId: string, defaultRpcUrl: string): string {
+  const userCfg = userNetworkServiceConfigService.get(networkId, 'rpc') as
+    | { rpcUrl?: string }
+    | undefined;
+  if (userCfg?.rpcUrl && isValidUrl(String(userCfg.rpcUrl))) return String(userCfg.rpcUrl);
+
+  const override = appConfigService.getRpcEndpointOverride(networkId);
+  if (typeof override === 'string' && override && isValidUrl(override)) return override;
+  if (override && typeof override === 'object' && 'http' in override) {
+    const url = (override as { http: string }).http;
+    if (isValidUrl(url)) return url;
+  }
+
+  return defaultRpcUrl;
+}
+
+/**
+ * EVM fallback for contracts where the adapter rejects getOwnership() due to
+ * schema-based Ownable detection, even though owner() works on-chain.
+ */
+async function readOwnershipViaRpc(
+  runtime: RoleManagerRuntime | null,
+  contractAddress: string
+): Promise<OwnershipInfo | null> {
+  if (!runtime || runtime.networkConfig.ecosystem !== 'evm') return null;
+
+  try {
+    const networkConfig = runtime.networkConfig as { id: string; rpcUrl: string };
+    const rpcUrl = resolveOwnershipProbeRpcUrl(networkConfig.id, networkConfig.rpcUrl);
+    const { createPublicClient, http } = await import('viem');
+
+    const client = createPublicClient({ transport: http(rpcUrl) });
+    const ownerAddress = await client.readContract({
+      address: contractAddress as `0x${string}`,
+      abi: [
+        {
+          type: 'function',
+          name: 'owner',
+          inputs: [],
+          outputs: [{ name: '', type: 'address' }],
+          stateMutability: 'view',
+        },
+      ],
+      functionName: 'owner',
+    });
+
+    if (typeof ownerAddress !== 'string' || !ownerAddress.startsWith('0x')) return null;
+
+    const owner = ownerAddress.toLowerCase() === ZERO_ADDRESS ? null : ownerAddress;
+
+    if (owner === null) {
+      return { owner: null, state: 'renounced' };
+    }
+
+    try {
+      const pendingOwnerAddress = await client.readContract({
+        address: contractAddress as `0x${string}`,
+        abi: [
+          {
+            type: 'function',
+            name: 'pendingOwner',
+            inputs: [],
+            outputs: [{ name: '', type: 'address' }],
+            stateMutability: 'view',
+          },
+        ],
+        functionName: 'pendingOwner',
+      });
+
+      if (
+        typeof pendingOwnerAddress === 'string' &&
+        pendingOwnerAddress.startsWith('0x') &&
+        pendingOwnerAddress.toLowerCase() !== ZERO_ADDRESS
+      ) {
+        return {
+          owner,
+          state: 'pending',
+          pendingTransfer: { pendingOwner: pendingOwnerAddress },
+        };
+      }
+    } catch {
+      // pendingOwner() is optional for basic Ownable contracts
+    }
+
+    return { owner, state: 'owned' };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Return type for useContractRoles hook
@@ -293,6 +391,19 @@ export function useContractOwnership(
       try {
         return await service.getOwnership(contractAddress);
       } catch (err) {
+        const fallback = await readOwnershipViaRpc(runtime, contractAddress);
+        if (fallback) {
+          logger.warn(
+            'useContractOwnership',
+            'Recovered ownership via direct owner() probe after adapter getOwnership() failed',
+            {
+              contractAddress,
+              ecosystem: runtime?.networkConfig.ecosystem,
+              originalError: err instanceof Error ? err.message : String(err),
+            }
+          );
+          return fallback;
+        }
         throw wrapError(err, 'ownership');
       }
     },

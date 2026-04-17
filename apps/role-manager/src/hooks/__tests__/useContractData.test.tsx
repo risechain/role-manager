@@ -21,6 +21,41 @@ import type { RoleManagerRuntime } from '@/core/runtimeAdapter';
 import { DataError, ErrorCategory } from '../../utils/errors';
 import { useContractOwnership, useContractRoles, usePaginatedRoles } from '../useContractData';
 
+const { mockReadContract, mockGetRpcEndpointOverride, mockUserNetworkServiceGet, mockLoggerWarn } =
+  vi.hoisted(() => ({
+    mockReadContract: vi.fn(),
+    mockGetRpcEndpointOverride: vi.fn(),
+    mockUserNetworkServiceGet: vi.fn(),
+    mockLoggerWarn: vi.fn(),
+  }));
+
+vi.mock('viem', () => ({
+  createPublicClient: vi.fn(() => ({
+    readContract: mockReadContract,
+  })),
+  http: vi.fn((url: string) => ({ url })),
+}));
+
+vi.mock('@openzeppelin/ui-utils', () => ({
+  appConfigService: {
+    getRpcEndpointOverride: mockGetRpcEndpointOverride,
+  },
+  userNetworkServiceConfigService: {
+    get: mockUserNetworkServiceGet,
+  },
+  isValidUrl: (value: string) => {
+    try {
+      new URL(value);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  logger: {
+    warn: mockLoggerWarn,
+  },
+}));
+
 // Test fixtures
 const mockNetworkConfig: NetworkConfig = {
   id: 'stellar-testnet',
@@ -64,6 +99,17 @@ const mockOwnershipNull: OwnershipInfo = {
   owner: null,
 };
 
+const mockEvmNetworkConfig: NetworkConfig = {
+  id: 'rise-mainnet',
+  name: 'RISE',
+  ecosystem: 'evm',
+  network: 'rise',
+  type: 'mainnet',
+  isTestnet: false,
+  chainId: 4153,
+  rpcUrl: 'https://rpc.risechain.com',
+} as NetworkConfig;
+
 // Create mock AccessControlService factory
 const createMockAccessControlService = (
   overrides?: Partial<AccessControlService>
@@ -89,7 +135,8 @@ const createMockAccessControlService = (
 
 // Create mock runtime factory
 const createMockRuntime = (
-  accessControlService?: AccessControlService | null
+  accessControlService?: AccessControlService | null,
+  networkConfig: NetworkConfig = mockNetworkConfig
 ): RoleManagerRuntime => {
   const mockService =
     accessControlService === null
@@ -97,7 +144,7 @@ const createMockRuntime = (
       : (accessControlService ?? createMockAccessControlService());
 
   return {
-    networkConfig: mockNetworkConfig,
+    networkConfig,
     addressing: { isValidAddress: vi.fn().mockReturnValue(true) },
     accessControl: mockService,
   } as unknown as RoleManagerRuntime;
@@ -122,6 +169,12 @@ const createWrapper = () => {
 describe('useContractRoles', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadContract.mockReset();
+    mockGetRpcEndpointOverride.mockReset();
+    mockUserNetworkServiceGet.mockReset();
+    mockLoggerWarn.mockReset();
+    mockGetRpcEndpointOverride.mockReturnValue(undefined);
+    mockUserNetworkServiceGet.mockReturnValue(undefined);
   });
 
   afterEach(() => {
@@ -612,6 +665,12 @@ describe('usePaginatedRoles', () => {
 describe('useContractOwnership', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadContract.mockReset();
+    mockGetRpcEndpointOverride.mockReset();
+    mockUserNetworkServiceGet.mockReset();
+    mockLoggerWarn.mockReset();
+    mockGetRpcEndpointOverride.mockReturnValue(undefined);
+    mockUserNetworkServiceGet.mockReturnValue(undefined);
   });
 
   afterEach(() => {
@@ -671,6 +730,48 @@ describe('useContractOwnership', () => {
       expect(result.current.error).toBeNull();
       expect(result.current.hasOwner).toBe(true);
       expect(mockService.getOwnership).toHaveBeenCalledWith('CONTRACT_ADDRESS');
+    });
+
+    it('should fall back to direct owner() probe when adapter getOwnership rejects on EVM', async () => {
+      const mockService = createMockAccessControlService({
+        getOwnership: vi
+          .fn()
+          .mockRejectedValue(
+            new Error(
+              'Contract does not implement the Ownable interface — no owner() function available'
+            )
+          ),
+      });
+      const mockAdapter = createMockRuntime(mockService, mockEvmNetworkConfig);
+
+      mockReadContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
+        if (functionName === 'owner') {
+          return '0x1234567890123456789012345678901234567890';
+        }
+        if (functionName === 'pendingOwner') {
+          throw new Error('No pending owner');
+        }
+        throw new Error(`Unexpected function: ${functionName}`);
+      });
+
+      const { result } = renderHook(
+        () => useContractOwnership(mockAdapter, '0x00000000000000000000000000000000000000AA'),
+        {
+          wrapper: createWrapper(),
+        }
+      );
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.hasError).toBe(false);
+      expect(result.current.ownership).toEqual({
+        owner: '0x1234567890123456789012345678901234567890',
+        state: 'owned',
+      });
+      expect(mockLoggerWarn).toHaveBeenCalled();
     });
 
     it('should handle contracts with no owner (renounced)', async () => {
