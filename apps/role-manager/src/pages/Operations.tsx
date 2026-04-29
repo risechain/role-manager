@@ -57,6 +57,7 @@ import {
   parseFunctionParameterFormValue,
   toAbiFunctionParameter,
 } from '../utils/function-args';
+import { isSafePendingResult } from '../utils/operation-result';
 
 function formatScheduleDate(timestamp: number): string {
   if (timestamp === 0) return 'Immediate';
@@ -326,11 +327,17 @@ export function Operations() {
   const handleExecute = useCallback(
     async (target: string, data: string) => {
       try {
-        await executeOp.mutateAsync({
+        const result = await executeOp.mutateAsync({
           target,
           data,
           executionConfig: DEFAULT_EXECUTION_CONFIG,
         });
+
+        if (isSafePendingResult(result)) {
+          toast.info('Transaction sent to Safe');
+          return;
+        }
+
         toast.success('Operation executed');
         await refetch();
       } catch (err) {
@@ -343,12 +350,18 @@ export function Operations() {
   const handleCancel = useCallback(
     async (caller: string, target: string, data: string) => {
       try {
-        await cancelOp.mutateAsync({
+        const result = await cancelOp.mutateAsync({
           caller,
           target,
           data,
           executionConfig: DEFAULT_EXECUTION_CONFIG,
         });
+
+        if (isSafePendingResult(result)) {
+          toast.info('Transaction sent to Safe');
+          return;
+        }
+
         toast.success('Operation cancelled');
         await refetch();
       } catch (err) {
@@ -372,11 +385,17 @@ export function Operations() {
       return;
     }
     try {
-      await executeOp.mutateAsync({
+      const result = await executeOp.mutateAsync({
         target: formTarget,
         data: formData,
         executionConfig: DEFAULT_EXECUTION_CONFIG,
       });
+
+      if (isSafePendingResult(result)) {
+        toast.info('Transaction sent to Safe');
+        return;
+      }
+
       toast.success('Operation executed');
       setFormMode(null);
       setFormTarget('');
@@ -413,12 +432,18 @@ export function Operations() {
       when = ts;
     }
     try {
-      await scheduleOp.mutateAsync({
+      const result = await scheduleOp.mutateAsync({
         target: formTarget,
         data: formData,
         when,
         executionConfig: DEFAULT_EXECUTION_CONFIG,
       });
+
+      if (isSafePendingResult(result)) {
+        toast.info('Transaction sent to Safe');
+        return;
+      }
+
       toast.success('Operation scheduled');
       setFormMode(null);
 

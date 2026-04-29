@@ -17,6 +17,7 @@ import { useCallback, useRef, useState } from 'react';
 import type { OperationResult, TransactionStatusUpdate, TxStatus } from '@openzeppelin/ui-types';
 
 import type { DialogTransactionStep } from '../types/role-dialogs';
+import { isSafePendingResult } from '../utils/operation-result';
 
 // =============================================================================
 // Constants
@@ -24,7 +25,6 @@ import type { DialogTransactionStep } from '../types/role-dialogs';
 
 /** Delay in milliseconds before auto-closing dialog after success */
 export const SUCCESS_AUTO_CLOSE_DELAY = 1500;
-const SAFE_PENDING_RESULT_ID = 'safe-pending';
 
 // =============================================================================
 // Types
@@ -99,10 +99,6 @@ export function isUserRejectionError(error: Error): boolean {
     message.includes('denied') ||
     message.includes('user refused')
   );
-}
-
-function isSafePendingResult(result: OperationResult): boolean {
-  return result.id === SAFE_PENDING_RESULT_ID;
 }
 
 // =============================================================================

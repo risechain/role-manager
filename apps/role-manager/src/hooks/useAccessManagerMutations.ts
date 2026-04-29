@@ -22,6 +22,7 @@ import type {
 } from '@openzeppelin/ui-types';
 
 import type { AccessManagerService, AccessManagerStatusCallback } from '../types/access-manager';
+import { isSafePendingResult } from '../utils/operation-result';
 import { accessManagerInvalidationMap, type AccessManagerMutationType } from './invalidationMap';
 import { useAccessManagerService } from './useAccessManagerService';
 
@@ -269,6 +270,10 @@ function useAccessManagerMutationFactory<TArgs>(
 
       const result = await config.execute(service, args, handleStatusChange);
 
+      if (isSafePendingResult(result)) {
+        return result;
+      }
+
       try {
         await executeInvalidation();
       } catch {
@@ -278,6 +283,10 @@ function useAccessManagerMutationFactory<TArgs>(
       return result;
     },
     onSuccess: async (result) => {
+      if (isSafePendingResult(result)) {
+        return;
+      }
+
       await executeInvalidation();
       try {
         options?.onSuccess?.(result);
