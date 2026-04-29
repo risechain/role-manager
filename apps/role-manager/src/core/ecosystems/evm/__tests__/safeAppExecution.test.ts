@@ -56,14 +56,14 @@ describe('executeTransactionWithSafeApp', () => {
     expect(mockSend).not.toHaveBeenCalled();
   });
 
-  it('returns a safeTxHash when Safe is available for the selected chain', async () => {
+  it('returns the Safe pending sentinel without waiting for the Safe modal', async () => {
     Object.defineProperty(window, 'parent', {
       configurable: true,
       value: {},
     });
 
     mockGetInfo.mockResolvedValue({ chainId: 4153, isReadOnly: false });
-    mockSend.mockResolvedValue({ safeTxHash: '0xsafehash' });
+    mockSend.mockReturnValue(new Promise(() => {}));
 
     const onStatus = vi.fn();
     const result = await executeTransactionWithSafeApp(
@@ -79,7 +79,7 @@ describe('executeTransactionWithSafeApp', () => {
       4153
     );
 
-    expect(result).toEqual({ id: '0xsafehash' });
+    expect(result).toEqual({ id: 'safe-pending' });
     expect(onStatus).toHaveBeenCalledWith('pendingSignature', {});
     expect(mockSend).toHaveBeenCalledWith({
       txs: [

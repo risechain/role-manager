@@ -100,7 +100,15 @@ export function SafeAppSyncProvider({ children }: SafeAppSyncProviderProps): Rea
       `Syncing selected network to Safe chain ${chainId} (${matchingNetwork.id}).`
     );
     setSelectedNetwork(matchingNetwork);
-  }, [chainId, isConnected, isIframe, networks, safeChainId, selectedNetwork?.id, setSelectedNetwork]);
+  }, [
+    chainId,
+    isConnected,
+    isIframe,
+    networks,
+    safeChainId,
+    selectedNetwork?.id,
+    setSelectedNetwork,
+  ]);
 
   return <>{children}</>;
 }

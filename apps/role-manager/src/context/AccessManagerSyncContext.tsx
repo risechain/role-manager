@@ -80,6 +80,7 @@ export function AccessManagerSyncProvider({ children }: { children: ReactNode })
  * Access the shared AccessManager sync state.
  * Data is always in-memory — no IndexedDB read delay on page navigation.
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useSharedAccessManagerSync(): AccessManagerSyncContextValue {
   return useContext(SyncContext);
 }

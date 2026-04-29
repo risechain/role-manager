@@ -104,7 +104,7 @@ function withCapabilityNote(
 ): ExtendedCapabilities {
   return {
     ...capabilities,
-    notes: [...capabilities.notes, note],
+    notes: [...(capabilities.notes ?? []), note],
   };
 }
 

@@ -39,6 +39,9 @@ const mockNetworkConfig: NetworkConfig = {
 const mockOperationResult: OperationResult = {
   id: 'tx-123456',
 };
+const mockSafePendingResult: OperationResult = {
+  id: 'safe-pending',
+};
 
 const MOCK_CONTRACT_ADDRESS = '0xContractAddress';
 const MOCK_ACCOUNT_ADDRESS = '0xAccountAddress';
@@ -858,6 +861,45 @@ describe('useManageRolesDialog', () => {
       });
 
       expect(onSuccess).toHaveBeenCalledWith(mockOperationResult);
+    });
+
+    it('should keep the current role-change stage when Safe hands off to a batch', async () => {
+      const onClose = vi.fn();
+      const onSuccess = vi.fn();
+
+      mockGrantRoleMutateAsync.mockResolvedValue(mockSafePendingResult);
+
+      const { result } = renderHook(
+        () =>
+          useManageRolesDialog({
+            accountAddress: MOCK_ACCOUNT_ADDRESS,
+            onClose,
+            onSuccess,
+          }),
+        { wrapper: createWrapper() }
+      );
+
+      act(() => {
+        result.current.toggleRole('MINTER_ROLE_ID');
+      });
+
+      await act(async () => {
+        await result.current.submit();
+      });
+
+      expect(result.current.step).toBe('form');
+      expect(result.current.pendingChange).toEqual({
+        type: 'grant',
+        roleId: 'MINTER_ROLE_ID',
+        roleName: 'Minter',
+      });
+      expect(onSuccess).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.advanceTimersByTime(1500);
+      });
+
+      expect(onClose).not.toHaveBeenCalled();
     });
   });
 

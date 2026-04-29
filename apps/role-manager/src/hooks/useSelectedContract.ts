@@ -92,7 +92,9 @@ export function useSelectedContract(): UseSelectedContractReturn {
     // Also patch accessControl's internal executeTransaction callback.
     // The AC service captures its own execution reference at construction time,
     // so patching rt.execution alone doesn't cover AC mutations (grantRole, etc.).
-    const ac = rt.accessControl as { executeTransaction?: (...args: unknown[]) => Promise<unknown> } | undefined;
+    const ac = rt.accessControl as
+      | { executeTransaction?: (...args: unknown[]) => Promise<unknown> }
+      | undefined;
     if (ac?.executeTransaction) {
       const originalAcExec = ac.executeTransaction.bind(ac);
       ac.executeTransaction = (async (...args: unknown[]) => {

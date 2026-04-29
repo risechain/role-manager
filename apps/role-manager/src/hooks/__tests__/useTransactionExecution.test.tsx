@@ -25,6 +25,9 @@ import {
 const mockOperationResult: OperationResult = {
   id: 'tx-123456',
 };
+const mockSafePendingResult: OperationResult = {
+  id: 'safe-pending',
+};
 
 interface TestMutationArgs {
   roleId: string;
@@ -203,6 +206,37 @@ describe('useTransactionExecution', () => {
       });
 
       expect(onSuccess).toHaveBeenCalledWith(mockOperationResult);
+    });
+
+    it('should keep form state for Safe batch handoff results', async () => {
+      const onSuccess = vi.fn();
+      const onClose = vi.fn();
+      const mutation = createMockMutation({
+        mutateAsync: vi.fn().mockResolvedValue(mockSafePendingResult),
+        invalidate: vi.fn(),
+      });
+
+      const { result } = renderHook(
+        () => useTransactionExecution(mutation, { onSuccess, onClose }),
+        {
+          wrapper: createWrapper(),
+        }
+      );
+
+      await act(async () => {
+        await result.current.execute({ roleId: 'ROLE_ID', account: '0xAccount' });
+      });
+
+      expect(result.current.step).toBe('form');
+      expect(mutation.invalidate).not.toHaveBeenCalled();
+      expect(onSuccess).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.advanceTimersByTime(1500);
+      });
+
+      expect(onClose).not.toHaveBeenCalled();
+      expect(mutation.reset).not.toHaveBeenCalled();
     });
 
     it('should auto-close after 1.5s on success', async () => {
@@ -443,6 +477,41 @@ describe('useMultiMutationExecution', () => {
       });
 
       expect(onSuccess).toHaveBeenCalledWith(mockOperationResult);
+    });
+
+    it('should keep form state for Safe batch handoff results', async () => {
+      const onSuccess = vi.fn();
+      const onClose = vi.fn();
+      const resetFn = vi.fn();
+      const invalidate = vi.fn();
+
+      const { result } = renderHook(
+        () =>
+          useMultiMutationExecution({
+            onSuccess,
+            onClose,
+            resetMutations: [resetFn],
+            invalidateFns: [invalidate],
+          }),
+        {
+          wrapper: createWrapper(),
+        }
+      );
+
+      await act(async () => {
+        await result.current.execute(() => Promise.resolve(mockSafePendingResult));
+      });
+
+      expect(result.current.step).toBe('form');
+      expect(invalidate).not.toHaveBeenCalled();
+      expect(onSuccess).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.advanceTimersByTime(1500);
+      });
+
+      expect(onClose).not.toHaveBeenCalled();
+      expect(resetFn).not.toHaveBeenCalled();
     });
 
     it('should auto-close after delay on success', async () => {

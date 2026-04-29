@@ -24,6 +24,7 @@ import type { DialogTransactionStep } from '../types/role-dialogs';
 
 /** Delay in milliseconds before auto-closing dialog after success */
 export const SUCCESS_AUTO_CLOSE_DELAY = 1500;
+const SAFE_PENDING_RESULT_ID = 'safe-pending';
 
 // =============================================================================
 // Types
@@ -100,6 +101,10 @@ export function isUserRejectionError(error: Error): boolean {
   );
 }
 
+function isSafePendingResult(result: OperationResult): boolean {
+  return result.id === SAFE_PENDING_RESULT_ID;
+}
+
 // =============================================================================
 // Hook Implementation
 // =============================================================================
@@ -166,6 +171,11 @@ export function useTransactionExecution<TArgs>(
       try {
         const result = await mutation.mutateAsync(args);
 
+        if (isSafePendingResult(result)) {
+          setStep('form');
+          return;
+        }
+
         // Explicit cache invalidation — TanStack Query v5 fires
         // useMutation.onSuccess as fire-and-forget so we cannot rely on
         // it for awaited invalidation.
@@ -209,6 +219,11 @@ export function useTransactionExecution<TArgs>(
 
     try {
       const result = await mutation.mutateAsync(args);
+
+      if (isSafePendingResult(result)) {
+        setStep('form');
+        return;
+      }
 
       try {
         await mutation.invalidate?.();
@@ -391,6 +406,11 @@ export function useMultiMutationExecution(
       try {
         const result = await fn();
 
+        if (isSafePendingResult(result)) {
+          setStep('form');
+          return;
+        }
+
         // Explicit cache invalidation
         for (const inv of invalidateFns) {
           try {
@@ -435,6 +455,11 @@ export function useMultiMutationExecution(
 
     try {
       const result = await fn();
+
+      if (isSafePendingResult(result)) {
+        setStep('form');
+        return;
+      }
 
       for (const inv of invalidateFns) {
         try {

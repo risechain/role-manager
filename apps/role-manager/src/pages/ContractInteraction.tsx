@@ -28,7 +28,9 @@ function schemaHasFunction(schema: ContractSchema, functionName: string): boolea
 
 function isSchemaCompatibleWithCapabilities(
   schema: ContractSchema,
-  capabilities: ReturnType<typeof useSelectedContract>['selectedContract']['capabilities']
+  capabilities: NonNullable<
+    ReturnType<typeof useSelectedContract>['selectedContract']
+  >['capabilities']
 ): boolean {
   if (!capabilities) return true;
 
