@@ -175,6 +175,14 @@ export interface SyncReadOptions {
   onProgress?: SyncProgressCallback;
 }
 
+/** Options for incrementally refreshing scheduled operations. */
+export interface ScheduledOperationReadOptions extends SyncReadOptions {
+  /** Inclusive block at which the scan should stop. */
+  toBlock?: bigint;
+  /** Previously discovered operations to update with logs from this scan. */
+  previousOperations?: ScheduledOperation[];
+}
+
 // =============================================================================
 // Service Interface
 // =============================================================================
@@ -230,7 +238,7 @@ export interface AccessManagerService {
   /** Fetch all pending scheduled operations */
   getScheduledOperations(
     managerAddress: string,
-    options?: SyncReadOptions
+    options?: ScheduledOperationReadOptions
   ): Promise<ScheduledOperation[]>;
 
   /** Check if a caller can call a specific function on a target */

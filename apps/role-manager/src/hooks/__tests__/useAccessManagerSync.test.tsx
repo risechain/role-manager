@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AccessManagerRole, AccessManagerService } from '../../types/access-manager';
@@ -101,5 +101,64 @@ describe('useAccessManagerSync authority graph strategy', () => {
       { fromBlock: 24_166_604n }
     );
     unmount();
+  });
+
+  it('polls operation logs incrementally from the last cached block', async () => {
+    vi.useFakeTimers();
+    let cached: Parameters<typeof storageMocks.save>[0] | null = null;
+    storageMocks.get.mockImplementation(async () => cached);
+    storageMocks.save.mockImplementation(async (record) => {
+      cached = record;
+    });
+    graphqlMocks.isSubgraphAvailable.mockResolvedValue(true);
+    graphqlMocks.fetchRolesFromSubgraph.mockResolvedValue([roleSeed]);
+    graphqlMocks.fetchTargetsFromSubgraph.mockResolvedValue([targetSeed]);
+    graphqlMocks.fetchEventsFromSubgraph.mockResolvedValue([]);
+    graphqlMocks.buildEventHistoryFromRoles.mockReturnValue([]);
+
+    const getBlockNumber = vi.fn().mockResolvedValueOnce(100n).mockResolvedValueOnce(105n);
+    const service = {
+      getDeploymentBlock: vi.fn().mockResolvedValue(42n),
+      hydrateRolesFromSubgraph: vi.fn().mockResolvedValue([hydratedRole]),
+      hydrateTargetsFromSubgraph: vi.fn().mockResolvedValue([hydratedTarget]),
+      getScheduledOperations: vi.fn().mockResolvedValue([scheduledOperation]),
+      publicClient: {
+        getBlockNumber,
+        readContract: vi.fn().mockResolvedValue(0),
+      },
+    } as unknown as AccessManagerService;
+
+    const { unmount } = renderHook(() =>
+      useAccessManagerSync(
+        service,
+        '0x1000000000000000000000000000000000000001',
+        1,
+        'ethereum-mainnet'
+      )
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(service.getScheduledOperations).toHaveBeenNthCalledWith(
+      1,
+      '0x1000000000000000000000000000000000000001',
+      { fromBlock: 42n, toBlock: 100n }
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(service.getScheduledOperations).toHaveBeenNthCalledWith(
+      2,
+      '0x1000000000000000000000000000000000000001',
+      {
+        fromBlock: 101n,
+        toBlock: 105n,
+        previousOperations: [scheduledOperation],
+      }
+    );
+    unmount();
+    vi.useRealTimers();
   });
 });

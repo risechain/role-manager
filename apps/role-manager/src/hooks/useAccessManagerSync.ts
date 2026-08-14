@@ -232,7 +232,10 @@ export function useAccessManagerSync(
       canc: boolean
     ): Promise<SyncResult | null> {
       try {
-        const deploymentBlock = await svc.getDeploymentBlock(addr);
+        const cached = await accessManagerSyncStorage.get(networkId, addr);
+        const deploymentBlock = cached
+          ? BigInt(cached.deploymentBlock)
+          : await svc.getDeploymentBlock(addr);
         const available = await isSubgraphAvailable(cid, addr, networkId, Number(deploymentBlock));
         if (!available || canc || sid !== syncRef.current) return null;
 
@@ -245,10 +248,31 @@ export function useAccessManagerSync(
 
         if (!gqlRoles || !gqlTargets || canc || sid !== syncRef.current) return null;
 
+        let latestBlock: bigint | null = null;
+        try {
+          const svcWithClient = svc as unknown as {
+            publicClient?: { getBlockNumber?: () => Promise<bigint> };
+          };
+          latestBlock = (await svcWithClient.publicClient?.getBlockNumber?.()) ?? null;
+        } catch {
+          /* scan to the service's latest block when direct access is unavailable */
+        }
+
+        const operationOptions = {
+          fromBlock:
+            cached && cached.lastSyncedBlock > 0
+              ? BigInt(cached.lastSyncedBlock) + 1n
+              : deploymentBlock,
+          ...(latestBlock === null ? {} : { toBlock: latestBlock }),
+          ...(cached && cached.lastSyncedBlock > 0
+            ? { previousOperations: cached.operations }
+            : {}),
+        };
+
         const [hydratedRoles, hydratedTargets, rpcOperations] = await Promise.all([
           svc.hydrateRolesFromSubgraph?.(addr, gqlRoles) ?? Promise.resolve(gqlRoles),
           svc.hydrateTargetsFromSubgraph?.(addr, gqlTargets) ?? Promise.resolve(gqlTargets),
-          svc.getScheduledOperations(addr, { fromBlock: deploymentBlock }),
+          svc.getScheduledOperations(addr, operationOptions),
         ]);
 
         if (canc || sid !== syncRef.current) return null;
@@ -271,7 +295,7 @@ export function useAccessManagerSync(
         await accessManagerSyncStorage.save({
           networkId,
           address: contractAddress,
-          lastSyncedBlock: 0,
+          lastSyncedBlock: Number(latestBlock ?? cached?.lastSyncedBlock ?? 0),
           deploymentBlock: Number(deploymentBlock),
           roles: hydratedRoles,
           targets: hydratedTargets,

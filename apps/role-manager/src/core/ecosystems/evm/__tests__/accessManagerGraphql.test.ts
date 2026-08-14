@@ -13,6 +13,14 @@ const getMock = vi.fn();
 const MANAGER = '0x1000000000000000000000000000000000000001';
 const MEMBER = '0x2000000000000000000000000000000000000002';
 const TARGET = '0x3000000000000000000000000000000000000003';
+const ACCESS_MANAGER_SPEC_IDS = [
+  'core.access-manager-role-granted',
+  'core.access-manager-role-revoked',
+  'core.role-label',
+  'core.target-closed',
+  'core.target-function-role-updated',
+  'core.target-admin-delay-updated',
+];
 
 interface GraphqlRequest {
   query: string;
@@ -48,16 +56,24 @@ describe('AccessManager authority graph client', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
       const { query, variables } = requestFrom(init);
       expect(query).toContain('authorityGraphEvents');
-      expect(query).toContain('authoritySourceCoverage');
+      expect(query).toContain('authoritySourceCoverages');
       expect(variables).toMatchObject({
         chainId: 1,
         managerNodeId: `eip155:1:${MANAGER}`,
       });
       expect(variables.specIds).toContain('core.role-label');
+      expect(variables.coverageIds).toEqual(
+        ACCESS_MANAGER_SPEC_IDS.map((specId) => `1:coverage:${specId}`)
+      );
 
       return response({
         _meta: { status: {} },
-        authoritySourceCoverage: { configuredStartBlock: '24166604' },
+        authoritySourceCoverages: {
+          items: ACCESS_MANAGER_SPEC_IDS.map((specId) => ({
+            id: `1:coverage:${specId}`,
+            configuredStartBlock: '24166604',
+          })),
+        },
         authorityGraphEvents: { totalCount: 1 },
       });
     });
@@ -71,12 +87,39 @@ describe('AccessManager authority graph client', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       response({
         _meta: { status: {} },
-        authoritySourceCoverage: { configuredStartBlock: '24166604' },
+        authoritySourceCoverages: {
+          items: ACCESS_MANAGER_SPEC_IDS.map((specId) => ({
+            id: `1:coverage:${specId}`,
+            configuredStartBlock: '24166604',
+          })),
+        },
         authorityGraphEvents: { totalCount: 1 },
       })
     );
 
     await expect(isSubgraphAvailable(1, MANAGER, 'coverage-gap', 24_166_603)).resolves.toBe(false);
+  });
+
+  it('falls back to RPC when any consumed event specification starts too late', async () => {
+    getMock.mockReturnValue({ accessControlIndexerUrl: 'https://indexer.test/graphql' });
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      response({
+        _meta: { status: {} },
+        authoritySourceCoverages: {
+          items: ACCESS_MANAGER_SPEC_IDS.map((specId) => ({
+            id: `1:coverage:${specId}`,
+            configuredStartBlock:
+              specId === 'core.target-function-role-updated' ? '24166605' : '24166604',
+          })),
+        },
+        authorityGraphEvents: { totalCount: 1 },
+      })
+    );
+
+    await expect(isSubgraphAvailable(1, MANAGER, 'partial-coverage', 24_166_604)).resolves.toBe(
+      false
+    );
   });
 
   it('groups current role-member relations by numeric role scope', async () => {

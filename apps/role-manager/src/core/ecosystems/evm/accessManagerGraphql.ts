@@ -58,12 +58,15 @@ const AVAILABILITY_QUERY = `
   query AuthorityAvailability(
     $chainId: Int!
     $managerNodeId: String!
-    $coverageId: String!
+    $coverageIds: [String!]!
     $specIds: [String!]!
   ) {
     _meta { status }
-    authoritySourceCoverage(id: $coverageId) {
-      configuredStartBlock
+    authoritySourceCoverages(where: { id_in: $coverageIds }, limit: 1000) {
+      items {
+        id
+        configuredStartBlock
+      }
     }
     authorityGraphEvents(
       where: {
@@ -346,25 +349,36 @@ export async function isSubgraphAvailable(
 
   type AvailabilityData = {
     _meta: { status: unknown };
-    authoritySourceCoverage: { configuredStartBlock: string } | null;
+    authoritySourceCoverages: {
+      items: Array<{ id: string; configuredStartBlock: string }>;
+    };
     authorityGraphEvents: { totalCount: number };
   };
+
+  const coverageIds = ACCESS_MANAGER_EVENT_SPECS.map((specId) => sourceCoverageId(chainId, specId));
 
   const data = await gqlQuery<AvailabilityData>(
     AVAILABILITY_QUERY,
     {
       chainId,
       managerNodeId: managerNodeId(chainId, manager),
-      coverageId: sourceCoverageId(chainId, ACCESS_MANAGER_GRANT_SPEC),
+      coverageIds,
       specIds: ACCESS_MANAGER_EVENT_SPECS,
     },
     networkId
   );
 
-  const coverageStart = data?.authoritySourceCoverage
-    ? finiteNumber(data.authoritySourceCoverage.configuredStartBlock, Number.MAX_SAFE_INTEGER)
-    : Number.MAX_SAFE_INTEGER;
-  const coversDeployment = deploymentBlock === undefined || coverageStart <= deploymentBlock;
+  const coverageById = new Map(
+    data?.authoritySourceCoverages.items.map((coverage) => [coverage.id, coverage]) ?? []
+  );
+  const coversDeployment = coverageIds.every((coverageId) => {
+    const coverage = coverageById.get(coverageId);
+    if (!coverage) return false;
+    return (
+      deploymentBlock === undefined ||
+      finiteNumber(coverage.configuredStartBlock, Number.MAX_SAFE_INTEGER) <= deploymentBlock
+    );
+  });
   const available = Boolean(
     data?._meta && data.authorityGraphEvents.totalCount > 0 && coversDeployment
   );
