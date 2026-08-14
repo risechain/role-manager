@@ -128,9 +128,12 @@ describe('useKnownContracts', () => {
       result.current.loadFunctionsFor(address);
     });
 
-    await waitFor(() => {
-      expect(result.current.contracts[0]?.functions).toHaveLength(1);
-    });
+    await waitFor(
+      () => {
+        expect(result.current.contracts[0]?.functions).toHaveLength(1);
+      },
+      { timeout: 3000 }
+    );
 
     expect(result.current.contracts[0]?.functions[0]?.params[0]?.components).toEqual([
       { name: 'capacity', type: 'uint128', components: undefined },

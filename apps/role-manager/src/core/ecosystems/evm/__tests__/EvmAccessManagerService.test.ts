@@ -9,6 +9,88 @@ const MANAGER_ADDRESS = '0x1000000000000000000000000000000000000001';
 const ACCOUNT_ADDRESS = '0x2000000000000000000000000000000000000002';
 
 describe('EvmAccessManagerService', () => {
+  it('hydrates authority graph role seeds from live AccessManager getters', async () => {
+    const readContract = vi.fn(async ({ functionName }: { functionName: string }) => {
+      switch (functionName) {
+        case 'getRoleAdmin':
+          return 2n;
+        case 'getRoleGuardian':
+          return 3n;
+        case 'getRoleGrantDelay':
+          return 60;
+        case 'getAccess':
+          return [1_700_000_000n, 45, 90, 1_700_000_100n];
+        default:
+          throw new Error(`unexpected function ${functionName}`);
+      }
+    });
+    const service = new EvmAccessManagerService(
+      { readContract } as unknown as import('viem').PublicClient,
+      null,
+      1
+    );
+
+    const roles = await service.hydrateRolesFromSubgraph(MANAGER_ADDRESS, [
+      {
+        roleId: '7',
+        label: null,
+        adminRoleId: '0',
+        guardianRoleId: '0',
+        grantDelay: 0,
+        members: [{ address: ACCOUNT_ADDRESS, since: 1, executionDelay: 0 }],
+      },
+    ]);
+
+    expect(roles).toEqual([
+      {
+        roleId: '7',
+        label: null,
+        adminRoleId: '2',
+        guardianRoleId: '3',
+        grantDelay: 60,
+        members: [
+          {
+            address: ACCOUNT_ADDRESS,
+            since: 1_700_000_000,
+            executionDelay: 45,
+            pendingDelay: { newDelay: 90, effect: 1_700_000_100 },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('hydrates authority graph targets from live AccessManager getters', async () => {
+    const readContract = vi.fn(async ({ functionName }: { functionName: string }) => {
+      if (functionName === 'isTargetClosed') return true;
+      if (functionName === 'getTargetAdminDelay') return 30;
+      throw new Error(`unexpected function ${functionName}`);
+    });
+    const service = new EvmAccessManagerService(
+      { readContract } as unknown as import('viem').PublicClient,
+      null,
+      1
+    );
+
+    const targets = await service.hydrateTargetsFromSubgraph(MANAGER_ADDRESS, [
+      {
+        target: ACCOUNT_ADDRESS,
+        isClosed: false,
+        adminDelay: 0,
+        functionRoles: [{ selector: '0x12345678', roleId: '7' }],
+      },
+    ]);
+
+    expect(targets).toEqual([
+      {
+        target: ACCOUNT_ADDRESS,
+        isClosed: true,
+        adminDelay: 30,
+        functionRoles: [{ selector: '0x12345678', roleId: '7' }],
+      },
+    ]);
+  });
+
   it('delegates write operations to the injected transaction executor', async () => {
     const publicClient = {
       waitForTransactionReceipt: vi.fn(),

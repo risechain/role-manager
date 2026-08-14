@@ -271,6 +271,110 @@ export class EvmAccessManagerService implements AccessManagerService {
 
   // ── Read Operations ──
 
+  async hydrateRolesFromSubgraph(
+    managerAddress: string,
+    roles: AccessManagerRole[]
+  ): Promise<AccessManagerRole[]> {
+    const address = managerAddress as Address;
+
+    return Promise.all(
+      roles.map(async (role) => {
+        const roleId = BigInt(role.roleId);
+        const safeRead = async <T>(fn: string, args: unknown[], fallback: T): Promise<T> => {
+          try {
+            return (await this.publicClient.readContract({
+              address,
+              abi: ACCESS_MANAGER_ABI,
+              functionName: fn as 'getRoleAdmin',
+              args: args as never,
+            })) as T;
+          } catch {
+            return fallback;
+          }
+        };
+
+        const [adminRoleId, guardianRoleId, grantDelay] = await Promise.all([
+          safeRead<bigint>('getRoleAdmin', [roleId], BigInt(role.adminRoleId)),
+          safeRead<bigint>('getRoleGuardian', [roleId], BigInt(role.guardianRoleId)),
+          safeRead<number>('getRoleGrantDelay', [roleId], role.grantDelay),
+        ]);
+
+        const members = (
+          await Promise.all(
+            role.members.map(async (member): Promise<AccessManagerMember | null> => {
+              try {
+                const [since, currentDelay, pendingDelay, effect] =
+                  (await this.publicClient.readContract({
+                    address,
+                    abi: ACCESS_MANAGER_ABI,
+                    functionName: 'getAccess',
+                    args: [roleId, member.address as Address],
+                  })) as unknown as [bigint, number, number, bigint];
+
+                if (Number(since) <= 0) return null;
+
+                const hydrated: AccessManagerMember = {
+                  address: member.address,
+                  since: Number(since),
+                  executionDelay: Number(currentDelay),
+                };
+                if (Number(pendingDelay) > 0) {
+                  hydrated.pendingDelay = {
+                    newDelay: Number(pendingDelay),
+                    effect: Number(effect),
+                  };
+                }
+                return hydrated;
+              } catch {
+                return null;
+              }
+            })
+          )
+        ).filter((member): member is AccessManagerMember => member !== null);
+
+        return {
+          ...role,
+          adminRoleId: String(adminRoleId),
+          guardianRoleId: String(guardianRoleId),
+          grantDelay: Number(grantDelay),
+          members,
+        };
+      })
+    );
+  }
+
+  async hydrateTargetsFromSubgraph(
+    managerAddress: string,
+    targets: TargetConfig[]
+  ): Promise<TargetConfig[]> {
+    const address = managerAddress as Address;
+
+    return Promise.all(
+      targets.map(async (target) => {
+        const [isClosed, adminDelay] = await Promise.all([
+          this.publicClient.readContract({
+            address,
+            abi: ACCESS_MANAGER_ABI,
+            functionName: 'isTargetClosed',
+            args: [target.target as Address],
+          }) as Promise<boolean>,
+          this.publicClient.readContract({
+            address,
+            abi: ACCESS_MANAGER_ABI,
+            functionName: 'getTargetAdminDelay',
+            args: [target.target as Address],
+          }) as Promise<number>,
+        ]);
+
+        return {
+          ...target,
+          isClosed,
+          adminDelay: Number(adminDelay),
+        };
+      })
+    );
+  }
+
   async getRoles(managerAddress: string, options?: SyncReadOptions): Promise<AccessManagerRole[]> {
     const address = managerAddress as Address;
     options?.onProgress?.({ phase: 'deployment-block' });

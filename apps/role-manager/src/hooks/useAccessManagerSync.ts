@@ -3,8 +3,8 @@
  * Feature: 018-access-manager
  *
  * Data fetching strategy:
- * 1. GraphQL subgraph (primary) — instant, complete data
- * 2. Event scanning (fallback) — slow, used when subgraph unavailable
+ * 1. Authority GraphQL for discovery/history plus live metadata reads
+ * 2. Event scanning fallback when graph coverage is incomplete
  * 3. IndexedDB cache — loaded on mount for instant display
  * 4. 15s polling for live updates
  */
@@ -14,7 +14,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   buildEventHistoryFromRoles,
   fetchEventsFromSubgraph,
-  fetchOperationsFromSubgraph,
   fetchRolesFromSubgraph,
   fetchTargetsFromSubgraph,
   isSubgraphAvailable,
@@ -136,6 +135,7 @@ export function useAccessManagerSync(
         // scoped to the specific AM contract (no cross-contract mixing).
         if (chainId > 0) {
           const result = await syncViaSubgraph(
+            service,
             chainId,
             contractAddress,
             isInitial,
@@ -224,6 +224,7 @@ export function useAccessManagerSync(
     }
 
     async function syncViaSubgraph(
+      svc: AccessManagerService,
       cid: number,
       addr: string,
       isInitial: boolean,
@@ -231,50 +232,58 @@ export function useAccessManagerSync(
       canc: boolean
     ): Promise<SyncResult | null> {
       try {
-        const available = await isSubgraphAvailable(cid, addr, networkId);
+        const deploymentBlock = await svc.getDeploymentBlock(addr);
+        const available = await isSubgraphAvailable(cid, addr, networkId, Number(deploymentBlock));
         if (!available || canc || sid !== syncRef.current) return null;
 
         if (isInitial) setSyncProgress({ phase: 'fetching-metadata' });
 
-        const [gqlRoles, gqlTargets, gqlOps] = await Promise.all([
+        const [gqlRoles, gqlTargets] = await Promise.all([
           fetchRolesFromSubgraph(cid, addr, networkId),
           fetchTargetsFromSubgraph(cid, addr, networkId),
-          fetchOperationsFromSubgraph(cid, addr, networkId),
         ]);
 
-        if (!gqlRoles || canc || sid !== syncRef.current) return null;
+        if (!gqlRoles || !gqlTargets || canc || sid !== syncRef.current) return null;
+
+        const [hydratedRoles, hydratedTargets, rpcOperations] = await Promise.all([
+          svc.hydrateRolesFromSubgraph?.(addr, gqlRoles) ?? Promise.resolve(gqlRoles),
+          svc.hydrateTargetsFromSubgraph?.(addr, gqlTargets) ?? Promise.resolve(gqlTargets),
+          svc.getScheduledOperations(addr, { fromBlock: deploymentBlock }),
+        ]);
+
+        if (canc || sid !== syncRef.current) return null;
 
         // Fetch events with tx hashes from subgraph
         let evtHistory = await fetchEventsFromSubgraph(cid, addr, networkId);
 
         // Fallback: synthesize from member data (no tx hashes)
         if (!evtHistory || evtHistory.length === 0) {
-          evtHistory = buildEventHistoryFromRoles(gqlRoles);
+          evtHistory = buildEventHistoryFromRoles(hydratedRoles);
         }
 
         if (canc || sid !== syncRef.current) return null;
 
         const now = Date.now();
 
-        if (isInitial) setSyncProgress({ phase: 'complete', rolesFound: gqlRoles.length });
+        if (isInitial) setSyncProgress({ phase: 'complete', rolesFound: hydratedRoles.length });
 
         // Cache for offline access
         await accessManagerSyncStorage.save({
           networkId,
           address: contractAddress,
           lastSyncedBlock: 0,
-          deploymentBlock: 0,
-          roles: gqlRoles,
-          targets: gqlTargets ?? [],
-          operations: gqlOps ?? [],
+          deploymentBlock: Number(deploymentBlock),
+          roles: hydratedRoles,
+          targets: hydratedTargets,
+          operations: rpcOperations,
           eventHistory: evtHistory,
           syncedAt: now,
         });
 
         return {
-          roles: gqlRoles,
-          targets: gqlTargets ?? [],
-          operations: gqlOps ?? [],
+          roles: hydratedRoles,
+          targets: hydratedTargets,
+          operations: rpcOperations,
           eventHistory: evtHistory,
           syncedAt: now,
         };
