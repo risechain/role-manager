@@ -44,7 +44,6 @@ const graphqlMocks = vi.hoisted(() => ({
   isSubgraphAvailable: vi.fn(),
   fetchRolesFromSubgraph: vi.fn(),
   fetchTargetsFromSubgraph: vi.fn(),
-  fetchOperationsFromSubgraph: vi.fn(),
   fetchEventsFromSubgraph: vi.fn(),
   buildEventHistoryFromRoles: vi.fn(),
 }));
@@ -72,7 +71,6 @@ describe('useAccessManagerSync authority graph strategy', () => {
     graphqlMocks.isSubgraphAvailable.mockResolvedValue(true);
     graphqlMocks.fetchRolesFromSubgraph.mockResolvedValue([roleSeed]);
     graphqlMocks.fetchTargetsFromSubgraph.mockResolvedValue([targetSeed]);
-    graphqlMocks.fetchOperationsFromSubgraph.mockResolvedValue(null);
     graphqlMocks.fetchEventsFromSubgraph.mockResolvedValue([]);
     graphqlMocks.buildEventHistoryFromRoles.mockReturnValue([]);
 
@@ -102,8 +100,6 @@ describe('useAccessManagerSync authority graph strategy', () => {
       '0x1000000000000000000000000000000000000001',
       { fromBlock: 24_166_604n }
     );
-    expect(graphqlMocks.fetchOperationsFromSubgraph).not.toHaveBeenCalled();
-
     unmount();
   });
 });

@@ -13,7 +13,6 @@ import { AM_ADMIN_ROLE_ID, AM_PUBLIC_ROLE_ID } from '../../../constants';
 import type {
   AccessManagerMember,
   AccessManagerRole,
-  ScheduledOperation,
   TargetConfig,
 } from '../../../types/access-manager';
 import type { AccessManagerEventLog } from '../../storage/AccessManagerSyncStorage';
@@ -566,21 +565,6 @@ export async function fetchTargetsFromSubgraph(
         .sort((a, b) => a.selector.localeCompare(b.selector)),
     }))
     .sort((a, b) => a.target.localeCompare(b.target));
-}
-
-/**
- * Scheduled operations are deliberately outside the authority graph model.
- * Returning null tells the sync layer to load them from the chain.
- */
-export async function fetchOperationsFromSubgraph(
-  chainId: number,
-  manager: string,
-  networkId?: string
-): Promise<ScheduledOperation[] | null> {
-  void chainId;
-  void manager;
-  void networkId;
-  return null;
 }
 
 /** Fetch grant, revoke, and target history from generic event evidence. */

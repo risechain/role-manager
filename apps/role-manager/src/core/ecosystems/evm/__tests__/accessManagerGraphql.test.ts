@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AM_ADMIN_ROLE_ID, AM_PUBLIC_ROLE_ID } from '../../../../constants';
 import {
   fetchEventsFromSubgraph,
-  fetchOperationsFromSubgraph,
   fetchRolesFromSubgraph,
   fetchTargetsFromSubgraph,
   isSubgraphAvailable,
@@ -411,13 +410,5 @@ describe('AccessManager authority graph client', () => {
 
     await expect(fetchEventsFromSubgraph(1, MANAGER, 'pagination')).resolves.toEqual([]);
     expect(eventOffsets).toEqual([0, 1000]);
-  });
-
-  it('does not claim scheduled-operation support from the authority graph', async () => {
-    getMock.mockReturnValue({ accessControlIndexerUrl: 'https://indexer.test/graphql' });
-    const fetchMock = vi.spyOn(globalThis, 'fetch');
-
-    await expect(fetchOperationsFromSubgraph(1, MANAGER, 'testnet')).resolves.toBeNull();
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
