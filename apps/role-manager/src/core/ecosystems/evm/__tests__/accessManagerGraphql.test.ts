@@ -237,6 +237,66 @@ describe('AccessManager authority graph client', () => {
     ]);
   });
 
+  it('discovers roles referenced only by target function mappings', async () => {
+    getMock.mockReturnValue({ accessControlIndexerUrl: 'https://indexer.test/graphql' });
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      const { query, variables } = requestFrom(init);
+
+      if (query.includes('authorityRelationCurrents')) {
+        return response({ authorityRelationCurrents: { items: [] } });
+      }
+
+      if (query.includes('authorityGraphEventArguments')) {
+        return response({
+          authorityGraphEventArguments: {
+            items: [{ eventId: 'target-role', name: 'roleId', rawValue: '11', jsonValue: '11' }],
+          },
+        });
+      }
+
+      const includesTargetRoles = (variables.specIds as string[]).includes(
+        'core.target-function-role-updated'
+      );
+      return response({
+        authorityGraphEvents: {
+          items: includesTargetRoles
+            ? [
+                {
+                  id: 'target-role',
+                  blockNumber: '10',
+                  transactionIndex: 0,
+                  logIndex: 0,
+                  transactionHash: '0x01',
+                  timestamp: '100',
+                  specId: 'core.target-function-role-updated',
+                },
+              ]
+            : [],
+        },
+      });
+    });
+
+    await expect(fetchRolesFromSubgraph(1, MANAGER, 'target-role-only')).resolves.toEqual([
+      {
+        roleId: AM_ADMIN_ROLE_ID,
+        label: null,
+        adminRoleId: AM_ADMIN_ROLE_ID,
+        guardianRoleId: AM_PUBLIC_ROLE_ID,
+        grantDelay: 0,
+        members: [],
+      },
+      {
+        roleId: '11',
+        label: null,
+        adminRoleId: AM_ADMIN_ROLE_ID,
+        guardianRoleId: AM_PUBLIC_ROLE_ID,
+        grantDelay: 0,
+        members: [],
+      },
+    ]);
+  });
+
   it('reconstructs target configuration from generic event evidence', async () => {
     getMock.mockReturnValue({ accessControlIndexerUrl: 'https://indexer.test/graphql' });
 
@@ -314,7 +374,7 @@ describe('AccessManager authority graph client', () => {
     getMock.mockReturnValue({ accessControlIndexerUrl: 'https://indexer.test/graphql' });
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
-      const { query } = requestFrom(init);
+      const { query, variables } = requestFrom(init);
 
       if (query.includes('authorityGraphEventArguments')) {
         return response({
@@ -327,6 +387,8 @@ describe('AccessManager authority graph client', () => {
               { eventId: 'target', name: 'target', rawValue: TARGET, jsonValue: TARGET },
               { eventId: 'target', name: 'selector', rawValue: '0x12345678', jsonValue: null },
               { eventId: 'target', name: 'roleId', rawValue: '7', jsonValue: '7' },
+              { eventId: 'closed', name: 'target', rawValue: TARGET, jsonValue: TARGET },
+              { eventId: 'closed', name: 'closed', rawValue: 'true', jsonValue: true },
               { eventId: 'label', name: 'roleId', rawValue: '7', jsonValue: '7' },
               {
                 eventId: 'label',
@@ -340,9 +402,19 @@ describe('AccessManager authority graph client', () => {
       }
 
       expect(query).toContain('authorityGraphEvents');
+      expect(variables.specIds).not.toContain('core.target-closed');
       return response({
         authorityGraphEvents: {
           items: [
+            {
+              id: 'closed',
+              blockNumber: '14',
+              transactionIndex: 0,
+              logIndex: 0,
+              transactionHash: '0x05',
+              timestamp: '104',
+              specId: 'core.target-closed',
+            },
             {
               id: 'label',
               blockNumber: '13',

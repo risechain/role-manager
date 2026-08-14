@@ -32,6 +32,12 @@ const ACCESS_MANAGER_EVENT_SPECS = [
   TARGET_FUNCTION_ROLE_SPEC,
   TARGET_ADMIN_DELAY_SPEC,
 ] as const;
+const ROLE_RELATED_EVENT_SPECS = [
+  ACCESS_MANAGER_GRANT_SPEC,
+  ACCESS_MANAGER_REVOKE_SPEC,
+  ROLE_LABEL_SPEC,
+  TARGET_FUNCTION_ROLE_SPEC,
+] as const;
 const MAX_UINT64 = 18_446_744_073_709_551_615n;
 
 /**
@@ -427,12 +433,7 @@ export async function fetchRolesFromSubgraph(
 
   const [relationItems, roleEvents] = await Promise.all([
     relationItemsPromise,
-    fetchAuthorityEventsWithArguments(
-      chainId,
-      manager,
-      [ACCESS_MANAGER_GRANT_SPEC, ACCESS_MANAGER_REVOKE_SPEC, ROLE_LABEL_SPEC],
-      networkId
-    ),
+    fetchAuthorityEventsWithArguments(chainId, manager, ROLE_RELATED_EVENT_SPECS, networkId),
   ]);
   if (!relationItems || !roleEvents) return null;
 
@@ -590,7 +591,7 @@ export async function fetchEventsFromSubgraph(
   const result = await fetchAuthorityEventsWithArguments(
     chainId,
     manager,
-    ACCESS_MANAGER_EVENT_SPECS,
+    ROLE_RELATED_EVENT_SPECS,
     networkId
   );
   if (!result) return null;
@@ -631,10 +632,6 @@ export async function fetchEventsFromSubgraph(
         target: target.toLowerCase(),
         selector: selector.toLowerCase(),
       });
-    } else if (event.specId === TARGET_CLOSED_SPEC) {
-      const target = argumentValue(result.argumentsByEvent, event.id, 'target');
-      if (typeof target !== 'string') continue;
-      history.push({ ...base, type: 'target-closed', target: target.toLowerCase() });
     } else if (event.specId === ROLE_LABEL_SPEC) {
       const roleId = argumentValue(result.argumentsByEvent, event.id, 'roleId');
       const label = argumentValue(result.argumentsByEvent, event.id, 'label');
