@@ -21,6 +21,7 @@ import type {
   CanCallResult,
   FunctionRoleMapping,
   ScheduledOperation,
+  ScheduledOperationReadOptions,
   SyncReadOptions,
   TargetConfig,
 } from '../../../types/access-manager';
@@ -86,7 +87,7 @@ export class EvmAccessManagerService implements AccessManagerService {
 
   /**
    * Get the deployment block of a contract.
-   * Strategy: Sourcify (free, no rate limit) → Etherscan (with retry).
+   * Strategy: Sourcify (free, no rate limit) → Etherscan (with retry) → RPC bytecode history.
    * Caches the result per address.
    */
   async getDeploymentBlock(contractAddress: string): Promise<bigint> {
@@ -113,8 +114,17 @@ export class EvmAccessManagerService implements AccessManagerService {
       }
     }
 
+    // Strategy 3: binary-search historical bytecode through the configured RPC.
+    // This keeps unverified contracts and custom networks usable without an
+    // explorer deployment API.
+    const rpcBlock = await this.getDeploymentBlockFromRpc(contractAddress as Address);
+    if (rpcBlock !== null) {
+      this.deploymentBlockCache.set(contractAddress.toLowerCase(), rpcBlock);
+      return rpcBlock;
+    }
+
     throw new Error(
-      'Could not determine deployment block. Please verify the contract is deployed and verified on Sourcify or Etherscan.'
+      'Could not determine deployment block. The configured RPC must provide historical bytecode when explorer metadata is unavailable.'
     );
   }
 
@@ -182,6 +192,36 @@ export class EvmAccessManagerService implements AccessManagerService {
       });
 
       return txReceipt.blockNumber;
+    } catch {
+      return null;
+    }
+  }
+
+  private async getDeploymentBlockFromRpc(contractAddress: Address): Promise<bigint | null> {
+    try {
+      const latestBlock = await this.publicClient.getBlockNumber();
+      const latestCode = await this.publicClient.getBytecode({
+        address: contractAddress,
+        blockNumber: latestBlock,
+      });
+      if (!latestCode || latestCode === '0x') return null;
+
+      let low = 0n;
+      let high = latestBlock;
+      while (low < high) {
+        const mid = (low + high) / 2n;
+        const code = await this.publicClient.getBytecode({
+          address: contractAddress,
+          blockNumber: mid,
+        });
+        if (code && code !== '0x') {
+          high = mid;
+        } else {
+          low = mid + 1n;
+        }
+      }
+
+      return low;
     } catch {
       return null;
     }
@@ -270,6 +310,110 @@ export class EvmAccessManagerService implements AccessManagerService {
   }
 
   // ── Read Operations ──
+
+  async hydrateRolesFromSubgraph(
+    managerAddress: string,
+    roles: AccessManagerRole[]
+  ): Promise<AccessManagerRole[]> {
+    const address = managerAddress as Address;
+
+    return Promise.all(
+      roles.map(async (role) => {
+        const roleId = BigInt(role.roleId);
+        const safeRead = async <T>(fn: string, args: unknown[], fallback: T): Promise<T> => {
+          try {
+            return (await this.publicClient.readContract({
+              address,
+              abi: ACCESS_MANAGER_ABI,
+              functionName: fn as 'getRoleAdmin',
+              args: args as never,
+            })) as T;
+          } catch {
+            return fallback;
+          }
+        };
+
+        const [adminRoleId, guardianRoleId, grantDelay] = await Promise.all([
+          safeRead<bigint>('getRoleAdmin', [roleId], BigInt(role.adminRoleId)),
+          safeRead<bigint>('getRoleGuardian', [roleId], BigInt(role.guardianRoleId)),
+          safeRead<number>('getRoleGrantDelay', [roleId], role.grantDelay),
+        ]);
+
+        const members = (
+          await Promise.all(
+            role.members.map(async (member): Promise<AccessManagerMember | null> => {
+              try {
+                const [since, currentDelay, pendingDelay, effect] =
+                  (await this.publicClient.readContract({
+                    address,
+                    abi: ACCESS_MANAGER_ABI,
+                    functionName: 'getAccess',
+                    args: [roleId, member.address as Address],
+                  })) as unknown as [bigint, number, number, bigint];
+
+                if (Number(since) <= 0) return null;
+
+                const hydrated: AccessManagerMember = {
+                  address: member.address,
+                  since: Number(since),
+                  executionDelay: Number(currentDelay),
+                };
+                if (Number(pendingDelay) > 0) {
+                  hydrated.pendingDelay = {
+                    newDelay: Number(pendingDelay),
+                    effect: Number(effect),
+                  };
+                }
+                return hydrated;
+              } catch {
+                return member;
+              }
+            })
+          )
+        ).filter((member): member is AccessManagerMember => member !== null);
+
+        return {
+          ...role,
+          adminRoleId: String(adminRoleId),
+          guardianRoleId: String(guardianRoleId),
+          grantDelay: Number(grantDelay),
+          members,
+        };
+      })
+    );
+  }
+
+  async hydrateTargetsFromSubgraph(
+    managerAddress: string,
+    targets: TargetConfig[]
+  ): Promise<TargetConfig[]> {
+    const address = managerAddress as Address;
+
+    return Promise.all(
+      targets.map(async (target) => {
+        const [isClosed, adminDelay] = await Promise.all([
+          this.publicClient.readContract({
+            address,
+            abi: ACCESS_MANAGER_ABI,
+            functionName: 'isTargetClosed',
+            args: [target.target as Address],
+          }) as Promise<boolean>,
+          this.publicClient.readContract({
+            address,
+            abi: ACCESS_MANAGER_ABI,
+            functionName: 'getTargetAdminDelay',
+            args: [target.target as Address],
+          }) as Promise<number>,
+        ]);
+
+        return {
+          ...target,
+          isClosed,
+          adminDelay: Number(adminDelay),
+        };
+      })
+    );
+  }
 
   async getRoles(managerAddress: string, options?: SyncReadOptions): Promise<AccessManagerRole[]> {
     const address = managerAddress as Address;
@@ -679,11 +823,11 @@ export class EvmAccessManagerService implements AccessManagerService {
 
   async getScheduledOperations(
     managerAddress: string,
-    options?: SyncReadOptions
+    options?: ScheduledOperationReadOptions
   ): Promise<ScheduledOperation[]> {
     const address = managerAddress as Address;
     const fromBlock = options?.fromBlock ?? (await this.getDeploymentBlock(address));
-    const toBlock = await this.publicClient.getBlockNumber();
+    const toBlock = options?.toBlock ?? (await this.publicClient.getBlockNumber());
 
     const operationLogs = await this.getLogsChunkedMulti({
       address,
@@ -748,7 +892,10 @@ export class EvmAccessManagerService implements AccessManagerService {
     })) as number;
 
     const now = Math.floor(Date.now() / 1000);
-    const operations: ScheduledOperation[] = [];
+    const operations = new Map<string, ScheduledOperation>();
+    for (const operation of options?.previousOperations ?? []) {
+      operations.set(`${operation.operationId}-${operation.nonce}`, operation);
+    }
 
     type ScheduledLog = LogWithArgs<{
       operationId: string;
@@ -768,7 +915,7 @@ export class EvmAccessManagerService implements AccessManagerService {
 
       if (isExpired) continue;
 
-      operations.push({
+      operations.set(opKey, {
         operationId: log.args.operationId,
         nonce: Number(log.args.nonce),
         schedule: scheduleTime,
@@ -780,7 +927,16 @@ export class EvmAccessManagerService implements AccessManagerService {
       });
     }
 
-    return operations;
+    for (const opKey of executedOps) operations.delete(opKey);
+    for (const opKey of canceledOps) operations.delete(opKey);
+
+    return Array.from(operations.values())
+      .map((operation) => ({
+        ...operation,
+        isReady: now >= operation.schedule,
+        isExpired: now > operation.schedule + Number(expiration),
+      }))
+      .filter((operation) => !operation.isExpired);
   }
 
   async canCall(

@@ -175,6 +175,14 @@ export interface SyncReadOptions {
   onProgress?: SyncProgressCallback;
 }
 
+/** Options for incrementally refreshing scheduled operations. */
+export interface ScheduledOperationReadOptions extends SyncReadOptions {
+  /** Inclusive block at which the scan should stop. */
+  toBlock?: bigint;
+  /** Previously discovered operations to update with logs from this scan. */
+  previousOperations?: ScheduledOperation[];
+}
+
 // =============================================================================
 // Service Interface
 // =============================================================================
@@ -212,13 +220,25 @@ export interface AccessManagerService {
   /** Fetch all roles with their metadata and members */
   getRoles(managerAddress: string, options?: SyncReadOptions): Promise<AccessManagerRole[]>;
 
+  /** Refresh authority-graph role discoveries from live contract getters */
+  hydrateRolesFromSubgraph?(
+    managerAddress: string,
+    roles: AccessManagerRole[]
+  ): Promise<AccessManagerRole[]>;
+
   /** Fetch all managed target configurations */
   getTargets(managerAddress: string, options?: SyncReadOptions): Promise<TargetConfig[]>;
+
+  /** Refresh authority-graph target discoveries from live contract getters */
+  hydrateTargetsFromSubgraph?(
+    managerAddress: string,
+    targets: TargetConfig[]
+  ): Promise<TargetConfig[]>;
 
   /** Fetch all pending scheduled operations */
   getScheduledOperations(
     managerAddress: string,
-    options?: SyncReadOptions
+    options?: ScheduledOperationReadOptions
   ): Promise<ScheduledOperation[]>;
 
   /** Check if a caller can call a specific function on a target */
