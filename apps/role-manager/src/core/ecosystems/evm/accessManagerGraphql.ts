@@ -21,12 +21,14 @@ import type { AccessManagerEventLog } from '../../storage/AccessManagerSyncStora
 const SUBGRAPH_TIMEOUT = 10_000;
 const ACCESS_MANAGER_GRANT_SPEC = 'core.access-manager-role-granted';
 const ACCESS_MANAGER_REVOKE_SPEC = 'core.access-manager-role-revoked';
+const ROLE_LABEL_SPEC = 'core.role-label';
 const TARGET_CLOSED_SPEC = 'core.target-closed';
 const TARGET_FUNCTION_ROLE_SPEC = 'core.target-function-role-updated';
 const TARGET_ADMIN_DELAY_SPEC = 'core.target-admin-delay-updated';
 const ACCESS_MANAGER_EVENT_SPECS = [
   ACCESS_MANAGER_GRANT_SPEC,
   ACCESS_MANAGER_REVOKE_SPEC,
+  ROLE_LABEL_SPEC,
   TARGET_CLOSED_SPEC,
   TARGET_FUNCTION_ROLE_SPEC,
   TARGET_ADMIN_DELAY_SPEC,
@@ -415,7 +417,7 @@ export async function fetchRolesFromSubgraph(
     fetchAuthorityEventsWithArguments(
       chainId,
       manager,
-      [ACCESS_MANAGER_GRANT_SPEC, ACCESS_MANAGER_REVOKE_SPEC],
+      [ACCESS_MANAGER_GRANT_SPEC, ACCESS_MANAGER_REVOKE_SPEC, ROLE_LABEL_SPEC],
       networkId
     ),
   ]);
@@ -431,17 +433,27 @@ export async function fetchRolesFromSubgraph(
     members: [],
   });
 
-  for (const event of roleEvents.events) {
+  for (const event of [...roleEvents.events].sort(compareEventOrder)) {
     const roleId = String(argumentValue(roleEvents.argumentsByEvent, event.id, 'roleId'));
-    if (!isUint64String(roleId) || roles.has(roleId)) continue;
-    roles.set(roleId, {
-      roleId,
-      label: null,
-      adminRoleId: AM_ADMIN_ROLE_ID,
-      guardianRoleId: AM_PUBLIC_ROLE_ID,
-      grantDelay: 0,
-      members: [],
-    });
+    if (!isUint64String(roleId)) continue;
+
+    let role = roles.get(roleId);
+    if (!role) {
+      role = {
+        roleId,
+        label: null,
+        adminRoleId: AM_ADMIN_ROLE_ID,
+        guardianRoleId: AM_PUBLIC_ROLE_ID,
+        grantDelay: 0,
+        members: [],
+      };
+      roles.set(roleId, role);
+    }
+
+    if (event.specId === ROLE_LABEL_SPEC) {
+      const label = argumentValue(roleEvents.argumentsByEvent, event.id, 'label');
+      if (typeof label === 'string') role.label = label;
+    }
   }
 
   for (const relation of relationItems) {
@@ -625,6 +637,11 @@ export async function fetchEventsFromSubgraph(
       const target = argumentValue(result.argumentsByEvent, event.id, 'target');
       if (typeof target !== 'string') continue;
       history.push({ ...base, type: 'target-closed', target: target.toLowerCase() });
+    } else if (event.specId === ROLE_LABEL_SPEC) {
+      const roleId = argumentValue(result.argumentsByEvent, event.id, 'roleId');
+      const label = argumentValue(result.argumentsByEvent, event.id, 'label');
+      if (!isUint64String(String(roleId)) || typeof label !== 'string') continue;
+      history.push({ ...base, type: 'label', roleId: String(roleId), label });
     }
   }
 

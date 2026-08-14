@@ -54,6 +54,7 @@ describe('AccessManager authority graph client', () => {
         chainId: 1,
         managerNodeId: `eip155:1:${MANAGER}`,
       });
+      expect(variables.specIds).toContain('core.role-label');
 
       return response({
         _meta: { status: {} },
@@ -88,7 +89,16 @@ describe('AccessManager authority graph client', () => {
       if (query.includes('authorityGraphEventArguments')) {
         return response({
           authorityGraphEventArguments: {
-            items: [{ eventId: 'revoked', name: 'roleId', rawValue: '9', jsonValue: '9' }],
+            items: [
+              { eventId: 'revoked', name: 'roleId', rawValue: '9', jsonValue: '9' },
+              { eventId: 'label', name: 'roleId', rawValue: '9', jsonValue: '9' },
+              {
+                eventId: 'label',
+                name: 'label',
+                rawValue: 'Operator',
+                jsonValue: null,
+              },
+            ],
           },
         });
       }
@@ -102,6 +112,15 @@ describe('AccessManager authority graph client', () => {
         return response({
           authorityGraphEvents: {
             items: [
+              {
+                id: 'label',
+                blockNumber: '9',
+                transactionIndex: 0,
+                logIndex: 0,
+                transactionHash: '0x10',
+                timestamp: '91',
+                specId: 'core.role-label',
+              },
               {
                 id: 'revoked',
                 blockNumber: '8',
@@ -167,7 +186,7 @@ describe('AccessManager authority graph client', () => {
       },
       {
         roleId: '9',
-        label: null,
+        label: 'Operator',
         adminRoleId: AM_ADMIN_ROLE_ID,
         guardianRoleId: AM_PUBLIC_ROLE_ID,
         grantDelay: 0,
@@ -266,6 +285,13 @@ describe('AccessManager authority graph client', () => {
               { eventId: 'target', name: 'target', rawValue: TARGET, jsonValue: TARGET },
               { eventId: 'target', name: 'selector', rawValue: '0x12345678', jsonValue: null },
               { eventId: 'target', name: 'roleId', rawValue: '7', jsonValue: '7' },
+              { eventId: 'label', name: 'roleId', rawValue: '7', jsonValue: '7' },
+              {
+                eventId: 'label',
+                name: 'label',
+                rawValue: 'Operator',
+                jsonValue: null,
+              },
             ],
           },
         });
@@ -275,6 +301,15 @@ describe('AccessManager authority graph client', () => {
       return response({
         authorityGraphEvents: {
           items: [
+            {
+              id: 'label',
+              blockNumber: '13',
+              transactionIndex: 0,
+              logIndex: 0,
+              transactionHash: '0x04',
+              timestamp: '103',
+              specId: 'core.role-label',
+            },
             {
               id: 'target',
               blockNumber: '12',
@@ -308,6 +343,14 @@ describe('AccessManager authority graph client', () => {
     });
 
     await expect(fetchEventsFromSubgraph(1, MANAGER, 'testnet')).resolves.toEqual([
+      {
+        type: 'label',
+        blockNumber: 13,
+        transactionHash: '0x04',
+        timestamp: 103,
+        roleId: '7',
+        label: 'Operator',
+      },
       {
         type: 'target-role',
         blockNumber: 12,
