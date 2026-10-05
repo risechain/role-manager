@@ -3,7 +3,7 @@
  * Feature: 018-access-manager
  *
  * Data fetching strategy:
- * 1. GraphQL subgraph (primary) — instant, complete data
+ * 1. Authority graph discovery/history with live contract metadata
  * 2. Event scanning (fallback) — slow, used when subgraph unavailable
  * 3. IndexedDB cache — loaded on mount for instant display
  * 4. 15s polling for live updates
@@ -12,7 +12,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
-  buildEventHistoryFromRoles,
   fetchEventsFromSubgraph,
   fetchOperationsFromSubgraph,
   fetchRolesFromSubgraph,
@@ -136,6 +135,7 @@ export function useAccessManagerSync(
         // scoped to the specific AM contract (no cross-contract mixing).
         if (chainId > 0) {
           const result = await syncViaSubgraph(
+            service,
             chainId,
             contractAddress,
             isInitial,
@@ -224,6 +224,7 @@ export function useAccessManagerSync(
     }
 
     async function syncViaSubgraph(
+      svc: AccessManagerService,
       cid: number,
       addr: string,
       isInitial: boolean,
@@ -231,50 +232,78 @@ export function useAccessManagerSync(
       canc: boolean
     ): Promise<SyncResult | null> {
       try {
-        const available = await isSubgraphAvailable(cid, addr, networkId);
+        if (
+          !svc.hydrateRolesFromSubgraph ||
+          !svc.hydrateTargetsFromSubgraph ||
+          !svc.hydrateOperationsFromSubgraph
+        )
+          return null;
+        const cached = await accessManagerSyncStorage.get(networkId, addr);
+        let deploymentBlock = cached?.deploymentBlock ? BigInt(cached.deploymentBlock) : undefined;
+        let available = await isSubgraphAvailable(
+          cid,
+          addr,
+          networkId,
+          deploymentBlock === undefined ? undefined : Number(deploymentBlock)
+        );
+        // Genesis coverage is complete without explorer verification. For later
+        // source boundaries, require a known deployment block before using the graph.
+        if (!available && deploymentBlock === undefined) {
+          deploymentBlock = await svc.getDeploymentBlock(addr);
+          available = await isSubgraphAvailable(cid, addr, networkId, Number(deploymentBlock));
+        }
         if (!available || canc || sid !== syncRef.current) return null;
 
         if (isInitial) setSyncProgress({ phase: 'fetching-metadata' });
 
-        const [gqlRoles, gqlTargets, gqlOps] = await Promise.all([
+        const [gqlRoles, gqlTargets, gqlOperations, evtHistory] = await Promise.all([
           fetchRolesFromSubgraph(cid, addr, networkId),
           fetchTargetsFromSubgraph(cid, addr, networkId),
           fetchOperationsFromSubgraph(cid, addr, networkId),
+          fetchEventsFromSubgraph(cid, addr, networkId),
         ]);
 
-        if (!gqlRoles || canc || sid !== syncRef.current) return null;
+        if (
+          !gqlRoles ||
+          !gqlTargets ||
+          !gqlOperations ||
+          !evtHistory ||
+          canc ||
+          sid !== syncRef.current
+        )
+          return null;
 
-        // Fetch events with tx hashes from subgraph
-        let evtHistory = await fetchEventsFromSubgraph(cid, addr, networkId);
-
-        // Fallback: synthesize from member data (no tx hashes)
-        if (!evtHistory || evtHistory.length === 0) {
-          evtHistory = buildEventHistoryFromRoles(gqlRoles);
-        }
+        // Relations are discovery seeds, not authoritative live delay/permission values.
+        // Verify operation candidates without replaying RPC history on every poll.
+        const [roles, targets, operations] = await Promise.all([
+          svc.hydrateRolesFromSubgraph(addr, gqlRoles),
+          svc.hydrateTargetsFromSubgraph(addr, gqlTargets),
+          svc.hydrateOperationsFromSubgraph(addr, gqlOperations),
+        ]);
 
         if (canc || sid !== syncRef.current) return null;
 
         const now = Date.now();
 
-        if (isInitial) setSyncProgress({ phase: 'complete', rolesFound: gqlRoles.length });
+        if (isInitial) setSyncProgress({ phase: 'complete', rolesFound: roles.length });
 
-        // Cache for offline access
+        // No RPC replay watermark: a later fallback must replay from deployment.
         await accessManagerSyncStorage.save({
           networkId,
           address: contractAddress,
           lastSyncedBlock: 0,
-          deploymentBlock: 0,
-          roles: gqlRoles,
-          targets: gqlTargets ?? [],
-          operations: gqlOps ?? [],
+          deploymentBlock: Number(deploymentBlock ?? 0),
+          roles,
+          targets,
+          operations,
           eventHistory: evtHistory,
           syncedAt: now,
         });
 
         return {
-          roles: gqlRoles,
-          targets: gqlTargets ?? [],
-          operations: gqlOps ?? [],
+          roles,
+          targets,
+          operations,
           eventHistory: evtHistory,
           syncedAt: now,
         };

@@ -212,6 +212,22 @@ export interface AccessManagerService {
   /** Fetch all roles with their metadata and members */
   getRoles(managerAddress: string, options?: SyncReadOptions): Promise<AccessManagerRole[]>;
 
+  /** Refresh authority graph discoveries using live contract getters. */
+  hydrateRolesFromSubgraph?(
+    managerAddress: string,
+    roles: AccessManagerRole[]
+  ): Promise<AccessManagerRole[]>;
+
+  hydrateTargetsFromSubgraph?(
+    managerAddress: string,
+    targets: TargetConfig[]
+  ): Promise<TargetConfig[]>;
+
+  hydrateOperationsFromSubgraph?(
+    managerAddress: string,
+    operations: ScheduledOperation[]
+  ): Promise<ScheduledOperation[]>;
+
   /** Fetch all managed target configurations */
   getTargets(managerAddress: string, options?: SyncReadOptions): Promise<TargetConfig[]>;
 
